@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "scope": "source, synthetic examples, tests and docs only",
+  "manifest_self": "SOURCE_MANIFEST.json (self hash omitted)",
+  "files": [
+    {
+      "path": ".gitignore",
+      "bytes": 87,
+      "sha256": "29f7626164a7194b630f388d8b666dcb0f4fd4ed1a092d29c72b845e4617fcea"
+    },
+    {
+      "path": "README.md",
+      "bytes": 4476,
+      "sha256": "62a13e7ff983c60712ef9c03116b34747fd82264e55a3d538a03e8fbc6f6ea3e"
+    },
+    {
+      "path": "docs/configuration.md",
+      "bytes": 5180,
+      "sha256": "1c9f5ecde2619feff35e5f1b715a06379c831a8f9501ca5b0763cb12430e4f56"
+    },
+    {
+      "path": "docs/extraction.md",
+      "bytes": 2467,
+      "sha256": "6c6e99cbeaf5043051f46176593c27da4fe0bb529104f0d9eb6135ac9375820e"
+    },
+    {
+      "path": "docs/operations.md",
+      "bytes": 5989,
+      "sha256": "1d8b6b27a91822db0b97517f4a8b095f5233a366cdbea5a689a3a296b1a4c845"
+    },
+    {
+      "path": "examples/routes.example.json",
+      "bytes": 1581,
+      "sha256": "83e9803b16f2ab1770ab472449ed064c8d79e1d25f3e8d15548941382b463d86"
+    },
+    {
+      "path": "examples/settings.example.json",
+      "bytes": 656,
+      "sha256": "720989d8f3699d16512126d70e352cf8ffdaba1b525efecb589424cfc42769bd"
+    },
+    {
+      "path": "scripts/check.py",
+      "bytes": 4162,
+      "sha256": "e99e592a082580173435b3a06065d4ffb4231f256957f69054e80fba7a5b7a55"
+    },
+    {
+      "path": "tools/syncopia_agent_mail_content.py",
+      "bytes": 27566,
+      "sha256": "8922d1c99db45d87ba1bf5f007eeae6270b5078b440ba715d754bd3be09dabcf"
+    },
+    {
+      "path": "tools/syncopia_agent_mail_lifecycle.py",
+      "bytes": 9807,
+      "sha256": "515b91a7ca09c673fa9f29cb7b75939de7547dd0c19a9ab8bb083456dca40696"
+    },
+    {
+      "path": "tools/syncopia_agent_mail_router.py",
+      "bytes": 43296,
+      "sha256": "b02c698e445872200c9b78315846f35a6bacea2cb7a754db18ce7260f7877150"
+    },
+    {
+      "path": "tools/syncopia_agent_mail_seen.py",
+      "bytes": 5929,
+      "sha256": "4b828dafc22c643ab6776fb79ace7828befb594fac960f06e830bdc6f2df9d47"
+    },
+    {
+      "path": "tools/syncopia_agent_mail_settings.py",
+      "bytes": 2823,
+      "sha256": "99c53f582b391e5aae450d7b4184c634a919dc4c6fe05be8d4f2a7050c1d78bc"
+    },
+    {
+      "path": "tools/syncopia_agent_mail_snapshot.py",
+      "bytes": 15584,
+      "sha256": "74d7912b1d31f3798433e974b5274289ab7a0faf8c0a54bdd20cb3a1c309e544"
+    },
+    {
+      "path": "tools/tests/test_syncopia_agent_mail_content.py",
+      "bytes": 15555,
+      "sha256": "12e04d77e50dd57252f0f3b8db07165252d329d53c1b5ed2c491c8d676037526"
+    },
+    {
+      "path": "tools/tests/test_syncopia_agent_mail_lifecycle.py",
+      "bytes": 17461,
+      "sha256": "3c9a6eb3bc282a1b5fd79d91a10db40f2f6d99ef4b84d4ea1345be17efc874b7"
+    },
+    {
+      "path": "tools/tests/test_syncopia_agent_mail_portability.py",
+      "bytes": 3395,
+      "sha256": "47672dd19c0ada1e53595d8c92aa1c86eaaab389b0d8db269a4464cda4c3e65b"
+    },
+    {
+      "path": "tools/tests/test_syncopia_agent_mail_router.py",
+      "bytes": 45135,
+      "sha256": "71210b281bd3127e70240d9f930c8fd21ab458d6d58fed9ec03f448a47c7e40d"
+    },
+    {
+      "path": "tools/tests/test_syncopia_agent_mail_snapshot.py",
+      "bytes": 12741,
+      "sha256": "6cefc2ac36c1833312f4e26ea042ce432f77ca2e11be83297e18ce522dc644bf"
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "id": "alpha",
+      "title": "Example Alpha",
+      "parent": "agent:main:telegram:direct:900000001:thread:900000001:9002",
+      "children": [
+        "agent:programmer:subagent:00000000-0000-4000-8000-000000000001"
+      ],
+      "message_ids": [],
+      "task_refs": [
+        "[EXAMPLE-ALPHA]"
+      ],
+      "paused": false,
+      "evidence": "Synthetic fixture only; not a verified live session."
+    },
+    {
+      "id": "beta",
+      "title": "Example Beta",
+      "parent": "agent:main:telegram:direct:900000001:thread:900000001:9003",
+      "children": [],
+      "message_ids": [],
+      "task_refs": [
+        "[EXAMPLE-BETA]"
+      ],
+      "paused": true,
+      "evidence": "Synthetic fixture only; not a verified live session."
+    },
+    {
+      "id": "gamma",
+      "title": "Example Gamma",
+      "parent": "agent:main:telegram:direct:900000001:thread:900000001:9004",
+      "children": [
+        "agent:programmer:subagent:00000000-0000-4000-8000-000000000002"
+      ],
+      "message_ids": [],
+      "task_refs": [
+        "[EXAMPLE-GAMMA]"
+      ],
+      "paused": false,
+      "evidence": "Synthetic fixture only; not a verified live session."
+    },
+    {
+      "id": "example-group-task",
+      "title": "Example Group Task",
+      "parent": "agent:main:telegram:group:-1009000000001:topic:1",
+      "children": [],
+      "message_ids": [],
+      "task_refs": [
+        "[EXAMPLE-TASK-20300101]"
+      ],
+      "paused": false,
+      "evidence": "Synthetic fixture only; not a verified live session."
+    }
+  ]
+}

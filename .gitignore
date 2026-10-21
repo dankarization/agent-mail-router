@@ -1,0 +1,11 @@
+.local/
+state/
+config/
+__pycache__/
+*.py[cod]
+*.sqlite*
+*.db*
+*.eml
+*.env
+.venv/
+.env*

@@ -1,0 +1,23 @@
+{
+  "account": "router@example.invalid",
+  "primary_senders": [
+    "source-a@example.invalid",
+    "source-a-new@example.invalid"
+  ],
+  "secondary_sender": "source-b@example.invalid",
+  "authorized_direct_chats": [
+    "900000001"
+  ],
+  "authorized_group_topics": [
+    {
+      "chat_id": "-1009000000001",
+      "thread_id": "1"
+    }
+  ],
+  "error_parent": "agent:main:telegram:direct:900000001:thread:900000001:9001",
+  "content_root": "state/mail-content",
+  "profile_path": "state/secrets/syncopia-mail.env",
+  "openclaw_config": "state/secrets/openclaw.json",
+  "openclaw_cli": "openclaw",
+  "control_ui_base": "https://control.example.invalid"
+}
