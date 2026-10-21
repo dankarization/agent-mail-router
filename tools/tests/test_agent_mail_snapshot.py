@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location(
-    "mail_snapshot", Path(__file__).resolve().parents[1] / "syncopia_agent_mail_snapshot.py")
+    "mail_snapshot", Path(__file__).resolve().parents[1] / "agent_mail_snapshot.py")
 mail = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(mail)
 
@@ -256,7 +256,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(json.loads(out.getvalue())["error"], "timeout")
 
     def test_only_expected_profile_identity(self):
-        text = "SYNCOPIA_MAIL_USER=somebody-else@example.invalid\nSYNCOPIA_MAIL_PASS=SECRET"
+        text = "AGENT_MAIL_USER=somebody-else@example.invalid\nAGENT_MAIL_PASS=SECRET"
         with patch.object(Path, "read_text", return_value=text):
             with self.assertRaisesRegex(mail.SnapshotError, "mailbox_identity_mismatch"):
                 mail.load_profile()

@@ -20,9 +20,9 @@ from email.parser import BytesHeaderParser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from syncopia_agent_mail_content import SENDERS, html_text, request_for
+from agent_mail_content import SENDERS, html_text, request_for
 
-from syncopia_agent_mail_settings import ACCOUNT, PROFILE_PATH
+from agent_mail_settings import ACCOUNT, PROFILE_PATH
 ENV_PATH = PROFILE_PATH
 BODY_BYTES, BODY_CHARS, HEADER_BYTES, DEADLINE_SECONDS = 65536, 16000, 32768, 18
 
@@ -43,7 +43,7 @@ def load_profile():
         if line and not line.startswith("#"):
             key, value = line.split("=", 1)
             values[key] = value
-    if values.get("SYNCOPIA_MAIL_USER") != ACCOUNT:
+    if values.get("AGENT_MAIL_USER") != ACCOUNT:
         raise SnapshotError("mailbox_identity_mismatch")
     return values
 
@@ -334,10 +334,10 @@ def main(argv=None):
     signal.setitimer(signal.ITIMER_REAL, DEADLINE_SECONDS)
     try:
         env = load_profile()
-        client = imaplib.IMAP4_SSL(env["SYNCOPIA_MAIL_HOST"], timeout=5,
+        client = imaplib.IMAP4_SSL(env["AGENT_MAIL_HOST"], timeout=5,
                                   ssl_context=ssl.create_default_context())
         client.sock.settimeout(5)
-        status, _ = client.login(ACCOUNT, env["SYNCOPIA_MAIL_PASS"])
+        status, _ = client.login(ACCOUNT, env["AGENT_MAIL_PASS"])
         check(status, "login_failed")
         result, code = snapshot(client, args.cursor, args.baseline, args.limit)
         client.shutdown()

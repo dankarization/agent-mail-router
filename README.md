@@ -1,4 +1,4 @@
-# Syncopia Mail Router
+# Agent Mail Router
 
 A durable, topic-aware mail router for Python and OpenClaw. This repository is a
 standalone **source extraction**, not a runtime backup or a deployed service.
@@ -13,8 +13,8 @@ Asia/Tbilisi). Uses the standard library only: no pip, virtualenv, Node packages
 or dependency download.
 
 ```sh
-git clone https://github.com/dankarization/syncopia-mail-router.git
-cd syncopia-mail-router
+git clone https://github.com/dankarization/agent-mail-router.git
+cd agent-mail-router
 python3 scripts/check.py
 ```
 
@@ -29,21 +29,21 @@ a destination-order test binds its simulated lost ACK to the route, not its name
 For CLI documentation (also offline):
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 tools/syncopia_agent_mail_router.py --help
-PYTHONDONTWRITEBYTECODE=1 python3 tools/syncopia_agent_mail_snapshot.py --help
-PYTHONDONTWRITEBYTECODE=1 python3 tools/syncopia_agent_mail_content.py --help
+PYTHONDONTWRITEBYTECODE=1 python3 tools/agent_mail_router.py --help
+PYTHONDONTWRITEBYTECODE=1 python3 tools/agent_mail_snapshot.py --help
+PYTHONDONTWRITEBYTECODE=1 python3 tools/agent_mail_content.py --help
 ```
 
 ## Components
 
 | File | Responsibility |
 | --- | --- |
-| `tools/syncopia_agent_mail_snapshot.py` | Stateless bounded IMAP preview, frozen UID boundary, exact sender parsing |
-| `tools/syncopia_agent_mail_router.py` | Durable ingress, route identity, summary batches, context/Telegram outbox |
-| `tools/syncopia_agent_mail_content.py` | Deferred original/MIME storage, bounded reads, external extraction handoff |
-| `tools/syncopia_agent_mail_seen.py` | SHA-bound complete-reading proof and exact-UID additive Seen |
-| `tools/syncopia_agent_mail_lifecycle.py` | Reading ranges, Seen intents, independent durable error outbox |
-| `tools/syncopia_agent_mail_settings.py` | Operator-owned identities, destination authorization and adapter paths |
+| `tools/agent_mail_snapshot.py` | Stateless bounded IMAP preview, frozen UID boundary, exact sender parsing |
+| `tools/agent_mail_router.py` | Durable ingress, route identity, summary batches, context/Telegram outbox |
+| `tools/agent_mail_content.py` | Deferred original/MIME storage, bounded reads, external extraction handoff |
+| `tools/agent_mail_seen.py` | SHA-bound complete-reading proof and exact-UID additive Seen |
+| `tools/agent_mail_lifecycle.py` | Reading ranges, Seen intents, independent durable error outbox |
+| `tools/agent_mail_settings.py` | Operator-owned identities, destination authorization and adapter paths |
 
 Flow: IMAP snapshot → durable originals/triage → operator-owned route map →
 external summarizer → accepted summaries → durable delivery effects. Document/OCR

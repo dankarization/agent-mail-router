@@ -16,7 +16,7 @@
   ],
   "error_parent": "agent:main:telegram:direct:900000001:thread:900000001:9001",
   "content_root": "state/mail-content",
-  "profile_path": "state/secrets/syncopia-mail.env",
+  "profile_path": "state/secrets/agent-mail.env",
   "openclaw_config": "state/secrets/openclaw.json",
   "openclaw_cli": "openclaw",
   "control_ui_base": "https://control.example.invalid"

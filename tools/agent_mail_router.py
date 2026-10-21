@@ -26,10 +26,10 @@ from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "state/mail-routing"
-from syncopia_agent_mail_settings import CLI, OPENCLAW_CONFIG, UI_BASE, destination
+from agent_mail_settings import CLI, OPENCLAW_CONFIG, UI_BASE, destination
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from syncopia_agent_mail_content import SENDERS, PRIMARY_SENDERS, CONTENT_ROOT, read_manifest, source_for
-from syncopia_agent_mail_lifecycle import Ledger, record_error, fixed_code, COMPONENTS
+from agent_mail_content import SENDERS, PRIMARY_SENDERS, CONTENT_ROOT, read_manifest, source_for
+from agent_mail_lifecycle import Ledger, record_error, fixed_code, COMPONENTS
 
 TZ = ZoneInfo("Asia/Tbilisi")
 
@@ -232,7 +232,7 @@ class Store:
     def bootstrap(self, trigger):
         with self.db:
             if self.get("cursor") is None:
-                from syncopia_agent_mail_snapshot import parse_cursor
+                from agent_mail_snapshot import parse_cursor
                 try:
                     cursor = parse_cursor(canonical(trigger["cursor"]))
                 except (KeyError, argparse.ArgumentTypeError):
@@ -364,7 +364,7 @@ class Store:
                     "parts": [{k: p.get(k) for k in ("id", "role", "mime", "state", "reason", "method", "warnings")}
                               for p in manifest.get("parts", [])[:20]],
                     "remaining_parts": max(0, len(manifest.get("parts", [])) - 20),
-                    "helper": "tools/syncopia_agent_mail_content.py",
+                    "helper": "tools/agent_mail_content.py",
                     "key": message["key"]}
             groups.setdefault(mail["route"], []).append(message)
         return {"batch_id": row["id"], "topics": [
@@ -453,7 +453,7 @@ class Store:
             if len(unavailable) > 1:
                 destination += f" (+{len(unavailable) - 1})"
             banner = ("Запасная доставка в общую почту: назначение недоступно.\n"
-                      "Даниил, маршрут можно указать здесь. Задачи не возобновляются.\n\n")
+                      "Нужный маршрут можно указать здесь. Задачи не возобновляются.\n\n")
             details += "\nНедоступное назначение: " + destination
         opening, closing = ("blockquote expandable", "blockquote") if telegram else ("details", "details")
 
@@ -573,7 +573,7 @@ class Store:
 
 def poll(cursor):
     try:
-        p = subprocess.run([sys.executable, str(ROOT / "tools/syncopia_agent_mail_snapshot.py"),
+        p = subprocess.run([sys.executable, str(ROOT / "tools/agent_mail_snapshot.py"),
                             "--cursor", canonical(cursor), "--limit", "10"],
                            capture_output=True, timeout=19)
         snap = json.loads(p.stdout)
@@ -683,7 +683,7 @@ def main(argv=None):
                     pending = ledger.db.execute("SELECT key FROM seen WHERE status='pending' ORDER BY rowid LIMIT 1").fetchone()
                     if pending:
                         try:
-                            seen_dispatch = run_json([sys.executable, str(ROOT / 'tools/syncopia_agent_mail_content.py'),
+                            seen_dispatch = run_json([sys.executable, str(ROOT / 'tools/agent_mail_content.py'),
                                                       '--state-dir', str(args.state_dir), 'seen', '--key', pending['key'], '--apply'], timeout=10)
                         except MailError:
                             ledger.error('mail-seen', 'seen_worker_failed', pending['key'])
@@ -697,7 +697,7 @@ def main(argv=None):
             elif args.command == "complete":
                 result = json.loads(args.result_json) if args.result_json else json.loads(base64.b64decode(args.result_b64, validate=True))
                 store.complete(args.batch, result)
-                from syncopia_agent_mail_seen import queue_if_ready
+                from agent_mail_seen import queue_if_ready
                 keys = json.loads(store.db.execute('SELECT keys_json FROM batches WHERE id=?', (args.batch,)).fetchone()[0])
                 for key in keys:
                     message = json.loads(store.db.execute('SELECT payload FROM mail WHERE key=?', (key,)).fetchone()[0])

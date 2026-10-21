@@ -20,7 +20,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-from syncopia_agent_mail_settings import ACCOUNT, PRIMARY_SENDERS, SENDERS, CONTENT_ROOT
+from agent_mail_settings import ACCOUNT, PRIMARY_SENDERS, SENDERS, CONTENT_ROOT
 MAX_RAW = 64 * 1024 * 1024
 MAX_PART = 24 * 1024 * 1024
 MAX_TEXT = 16 * 1024 * 1024
@@ -233,7 +233,7 @@ def materialize(raw_path, job, message, root):
 
 
 def acquire(client, message, root, include_unknown=False):
-    from syncopia_agent_mail_snapshot import fetch, literal, response_number, check
+    from agent_mail_snapshot import fetch, literal, response_number, check
     job = root / identity(message)
     job.mkdir(mode=0o700, parents=True, exist_ok=True)
     current = read_manifest(root, message)
@@ -425,8 +425,8 @@ def main(argv=None):
         elif args.command == 'read':
             out = read_text(args.content_root, messages[0], args.part, args.offset, args.chars)
         elif args.command == 'seen':
-            from syncopia_agent_mail_seen import proof_for, apply_seen, SeenError
-            from syncopia_agent_mail_lifecycle import Ledger
+            from agent_mail_seen import proof_for, apply_seen, SeenError
+            from agent_mail_lifecycle import Ledger
             ledger = Ledger(args.state_dir)
             try:
                 out = []
@@ -440,10 +440,10 @@ def main(argv=None):
                         continue
                     if args.apply:
                         if client is None:
-                            from syncopia_agent_mail_snapshot import load_profile, check
+                            from agent_mail_snapshot import load_profile, check
                             env = load_profile()
-                            client = imaplib.IMAP4_SSL(env['SYNCOPIA_MAIL_HOST'], timeout=5, ssl_context=ssl.create_default_context())
-                            check(client.login(ACCOUNT, env['SYNCOPIA_MAIL_PASS'])[0], 'login_failed')
+                            client = imaplib.IMAP4_SSL(env['AGENT_MAIL_HOST'], timeout=5, ssl_context=ssl.create_default_context())
+                            check(client.login(ACCOUNT, env['AGENT_MAIL_PASS'])[0], 'login_failed')
                         receipt = apply_seen(client, message, proof, ledger)
                         out.append({'key': message['key'], 'status': 'confirmed', 'proof': proof, 'receipt': receipt})
                     else:
@@ -470,14 +470,14 @@ def main(argv=None):
                             out.append(existing)
                             continue
                         if client is None and (message.get('sender') in SENDERS or args.include_unknown):
-                            from syncopia_agent_mail_snapshot import load_profile, check
+                            from agent_mail_snapshot import load_profile, check
                             env = load_profile()
-                            client = imaplib.IMAP4_SSL(env['SYNCOPIA_MAIL_HOST'], timeout=10, ssl_context=ssl.create_default_context())
-                            check(client.login(ACCOUNT, env['SYNCOPIA_MAIL_PASS'])[0], 'login_failed')
+                            client = imaplib.IMAP4_SSL(env['AGENT_MAIL_HOST'], timeout=10, ssl_context=ssl.create_default_context())
+                            check(client.login(ACCOUNT, env['AGENT_MAIL_PASS'])[0], 'login_failed')
                         try:
                             out.append(acquire(client, message, args.content_root, args.include_unknown))
                         except Exception as exc:
-                            from syncopia_agent_mail_snapshot import SnapshotError
+                            from agent_mail_snapshot import SnapshotError
                             obj = {'schema_version': 1, 'key': message['key'], 'source': source_for(message),
                                    'state': 'error', 'analysis_status': 'not_read',
                                    'reason': str(exc) if isinstance(exc, (ContentError, SnapshotError)) else 'deferred_read_failed',
@@ -490,7 +490,7 @@ def main(argv=None):
                                 raise
                             out.append(obj)
         if args.command in ('prepare', 'accept'):
-            from syncopia_agent_mail_lifecycle import record_error
+            from agent_mail_lifecycle import record_error
             for obj in out if isinstance(out, list) else [out]:
                 if obj.get('state') in ('error', 'limit'):
                     record_error(args.state_dir, 'mail-content', obj.get('reason', 'content_limit_or_error'), obj['key'])
@@ -501,22 +501,22 @@ def main(argv=None):
             out = [compact(obj) for obj in out]
         print(json.dumps(out, ensure_ascii=False, sort_keys=True), flush=True)
         if args.command == 'read':
-            from syncopia_agent_mail_lifecycle import Ledger
+            from agent_mail_lifecycle import Ledger
             manifest = read_manifest(args.content_root, messages[0])
             part = next(p for p in manifest['parts'] if p['id'] == args.part)
             ledger = Ledger(args.state_dir)
             try:
                 ledger.note_read(messages[0]['key'], out['source_sha256'], args.part, part['text']['sha256'],
                                  out['total_chars'], min(args.offset, out['total_chars']), out['next_offset'])
-                from syncopia_agent_mail_seen import queue_if_ready
+                from agent_mail_seen import queue_if_ready
                 queue_if_ready(args.state_dir, args.content_root, messages[0], ledger)
             finally:
                 ledger.close()
         return 0
     except Exception as exc:
-        from syncopia_agent_mail_lifecycle import record_error, fixed_code
-        from syncopia_agent_mail_seen import SeenError
-        from syncopia_agent_mail_snapshot import SnapshotError
+        from agent_mail_lifecycle import record_error, fixed_code
+        from agent_mail_seen import SeenError
+        from agent_mail_snapshot import SnapshotError
         code = fixed_code(str(exc)) if isinstance(exc, (ContentError, SeenError, SnapshotError)) else 'content_operation_failed'
         record_error(args.state_dir, 'mail-seen' if args.command == 'seen' else 'mail-content', code, ','.join(args.key))
         print(json.dumps({'status': 'error', 'error': code}))

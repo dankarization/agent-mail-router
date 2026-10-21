@@ -62,11 +62,11 @@ with tempfile.TemporaryDirectory(prefix="mail-router-check-", dir=ROOT / ".local
     os.open = absolute_open
     sys.addaudithook(guard)
     suite = unittest.defaultTestLoader.discover(
-        str(ROOT / "tools/tests"), pattern="test_syncopia_agent_mail_*.py")
+        str(ROOT / "tools/tests"), pattern="test_agent_mail_*.py")
     for name, module in list(sys.modules.items()):
-        if name.startswith(("syncopia_agent_mail_", "test_syncopia_agent_mail_")):
+        if name.startswith(("agent_mail_", "test_agent_mail_")):
             assert Path(module.__file__).resolve().is_relative_to(ROOT), name
-        if name.startswith("test_syncopia_agent_mail_") and hasattr(module, "m"):
+        if name.startswith("test_agent_mail_") and hasattr(module, "m"):
             assert Path(module.m.__file__).resolve().is_relative_to(ROOT), name
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     tempfile.tempdir = previous_temp

@@ -27,9 +27,9 @@ its deadline. `dispatch` services one routing effect without IMAP or Seen.
 ## Read-only state inspection
 
 ```sh
-python3 tools/syncopia_agent_mail_router.py status
-python3 tools/syncopia_agent_mail_router.py errors-status
-python3 tools/syncopia_agent_mail_router.py original --key VALIDITY:UID
+python3 tools/agent_mail_router.py status
+python3 tools/agent_mail_router.py errors-status
+python3 tools/agent_mail_router.py original --key VALIDITY:UID
 ```
 
 SQLite ingress and lifecycle ledgers use WAL/FULL. Preserve databases, WAL and
@@ -68,7 +68,7 @@ help; do not invent receipt strings or delete rows to force retry.
 
 ## Deferred originals, documents and Seen
 
-`syncopia_agent_mail_content.py` provides `prepare`, `status`, `handoff`,
+`agent_mail_content.py` provides `prepare`, `status`, `handoff`,
 `accept`, `read` and `seen`. Prepare and Seen require explicit individual keys;
 no implicit historical backfill. Acquisition uses EXAMINE/BODY.PEEK and does not
 mark mail read. Unknown-source preparation requires explicit review and never

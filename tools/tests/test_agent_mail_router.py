@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location(
-    "mail_router", Path(__file__).resolve().parents[1] / "syncopia_agent_mail_router.py")
+    "mail_router", Path(__file__).resolve().parents[1] / "agent_mail_router.py")
 m = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(m)
 ROOT = Path(__file__).resolve().parents[2]

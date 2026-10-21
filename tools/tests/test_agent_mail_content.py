@@ -13,11 +13,11 @@ from unittest.mock import patch
 
 TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS))
-import syncopia_agent_mail_content as c
-import syncopia_agent_mail_snapshot as snapshot
-from test_syncopia_agent_mail_snapshot import FakeIMAP, PLAIN
-import test_syncopia_agent_mail_router as router_tests
-from test_syncopia_agent_mail_router import msg, snap
+import agent_mail_content as c
+import agent_mail_snapshot as snapshot
+from test_agent_mail_snapshot import FakeIMAP, PLAIN
+import test_agent_mail_router as router_tests
+from test_agent_mail_router import msg, snap
 
 
 class RawIMAP:

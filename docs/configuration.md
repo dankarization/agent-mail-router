@@ -65,9 +65,9 @@ are external dependencies for real delivery, not for tests.
 The configured IMAP profile is a UTF-8 key=value file:
 
 ```text
-SYNCOPIA_MAIL_USER=router@example.invalid
-SYNCOPIA_MAIL_HOST=imap.example.invalid
-SYNCOPIA_MAIL_PASS=REPLACE_LOCALLY
+AGENT_MAIL_USER=router@example.invalid
+AGENT_MAIL_HOST=imap.example.invalid
+AGENT_MAIL_PASS=REPLACE_LOCALLY
 ```
 
 The user must exactly match configured `account`. IMAP uses TLS with standard
@@ -88,7 +88,7 @@ invalid initial cursor before polling. For a new mailbox, an authorized operator
 can obtain a baseline (skips prior mail without reading bodies):
 
 ```sh
-python3 tools/syncopia_agent_mail_snapshot.py --baseline
+python3 tools/agent_mail_snapshot.py --baseline
 ```
 
 This is a real authenticated IMAP operation, not an offline quick-start command.

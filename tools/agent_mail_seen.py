@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-import syncopia_agent_mail_content as content
+import agent_mail_content as content
 
 
 class SeenError(Exception):
@@ -68,7 +68,7 @@ def proof_for(state, root, message, ledger):
 
 
 def flags(client, uid):
-    from syncopia_agent_mail_snapshot import fetch
+    from agent_mail_snapshot import fetch
     # UID FETCH validates the returned UID; sequence numbers are never used.
     data = fetch(client, uid, '(UID FLAGS)')
     raw = b' '.join(x[0] if isinstance(x, tuple) else x for x in data if isinstance(x, (bytes, tuple)))
@@ -79,7 +79,7 @@ def flags(client, uid):
 
 
 def apply_seen(client, message, proof, ledger):
-    from syncopia_agent_mail_snapshot import check, response_number
+    from agent_mail_snapshot import check, response_number
     uid = message['uid']
     validity, expected_uid = message['key'].split(':')
     if type(uid) is not int or uid != int(expected_uid) or not 0 < uid <= 4294967295:
@@ -101,7 +101,7 @@ def apply_seen(client, message, proof, ledger):
         ledger.seen_result(message['key'], 'confirmed', receipt)
         return receipt
     except Exception as exc:
-        from syncopia_agent_mail_snapshot import SnapshotError
+        from agent_mail_snapshot import SnapshotError
         code = str(exc) if isinstance(exc, (SeenError, SnapshotError)) else 'seen_ack_unknown'
         # Adding Seen is idempotent. A retry revalidates UIDVALIDITY and FLAGS first.
         ledger.seen_result(message['key'], 'pending', error=code)

@@ -9,15 +9,15 @@ history, runtime configuration or proof archive is imported.
 Five source helpers and their four existing test modules:
 
 ```text
-tools/syncopia_agent_mail_content.py
-tools/syncopia_agent_mail_lifecycle.py
-tools/syncopia_agent_mail_router.py
-tools/syncopia_agent_mail_seen.py
-tools/syncopia_agent_mail_snapshot.py
-tools/tests/test_syncopia_agent_mail_content.py
-tools/tests/test_syncopia_agent_mail_lifecycle.py
-tools/tests/test_syncopia_agent_mail_router.py
-tools/tests/test_syncopia_agent_mail_snapshot.py
+tools/agent_mail_content.py
+tools/agent_mail_lifecycle.py
+tools/agent_mail_router.py
+tools/agent_mail_seen.py
+tools/agent_mail_snapshot.py
+tools/tests/test_agent_mail_content.py
+tools/tests/test_agent_mail_lifecycle.py
+tools/tests/test_agent_mail_router.py
+tools/tests/test_agent_mail_snapshot.py
 ```
 
 Source and tests are adapted, not byte-identical runtime exports:

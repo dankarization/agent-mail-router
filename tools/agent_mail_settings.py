@@ -45,7 +45,7 @@ def local_path(key, default):
 
 
 CONTENT_ROOT = local_path("content_root", "state/mail-content")
-PROFILE_PATH = local_path("profile_path", "state/secrets/syncopia-mail.env")
+PROFILE_PATH = local_path("profile_path", "state/secrets/agent-mail.env")
 OPENCLAW_CONFIG = local_path("openclaw_config", "state/secrets/openclaw.json")
 CLI = CONFIG.get("openclaw_cli", "openclaw")
 UI_BASE = CONFIG.get("control_ui_base", "https://control.example.invalid").rstrip("/")

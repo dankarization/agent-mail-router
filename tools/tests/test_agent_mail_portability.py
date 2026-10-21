@@ -5,8 +5,8 @@ import runpy
 import tempfile
 import unittest
 from unittest.mock import patch
-import syncopia_agent_mail_settings as settings
-from test_syncopia_agent_mail_router import m
+import agent_mail_settings as settings
+from test_agent_mail_router import m
 
 class PortabilityTests(unittest.TestCase):
     def test_fresh_store_requires_explicit_valid_cursor(self):

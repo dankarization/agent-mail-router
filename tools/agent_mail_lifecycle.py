@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from syncopia_agent_mail_settings import MAIL_TOPIC
+from agent_mail_settings import MAIL_TOPIC
 COMPONENTS = ('mail-monitor', 'mail-content', 'mail-delivery', 'mail-service', 'mail-seen')
 
 

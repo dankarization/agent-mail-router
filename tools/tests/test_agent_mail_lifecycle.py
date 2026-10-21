@@ -8,11 +8,11 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from contextlib import redirect_stdout
 
-import syncopia_agent_mail_content as c
-import syncopia_agent_mail_seen as seen
-import syncopia_agent_mail_lifecycle as lifecycle
-from test_syncopia_agent_mail_content import RawIMAP, message
-from test_syncopia_agent_mail_router import m, msg, snap, result, DAY, NIGHT, MIDNIGHT
+import agent_mail_content as c
+import agent_mail_seen as seen
+import agent_mail_lifecycle as lifecycle
+from test_agent_mail_content import RawIMAP, message
+from test_agent_mail_router import m, msg, snap, result, DAY, NIGHT, MIDNIGHT
 
 
 class FlagIMAP:
