@@ -17,8 +17,43 @@ The external summarizer submits one result per topic using
 `details` and `next`. The JSON is an array of objects. Text fields must be
 nonempty strings: summary ≤500, details ≤1100, next ≤300 characters. Extra fields
 are rejected. Rendered Telegram text also has a UTF-16 budget check.
-Complete is atomic/idempotent and does not send. ACK/repeated status creates
-context effects only; substantial results/blockers/decisions can notify.
+Complete is atomic and does not send. The first valid result wins under a SQLite
+write transaction: its text, source keys, frozen routes and delivery effects are
+immutable. ACK creates context effects only; results/blockers/decisions can notify.
+
+A successful CLI response keeps `status=stored` for existing callers and adds
+`completion_status=stored`, `terminal=true`, `next_action=NO_REPLY` and an
+`accepted_result_digest`. The summarizer must immediately end its turn with
+exactly `NO_REPLY`: no second complete, new draft, delivery call or user summary.
+A helper response is an explicit stop signal, not an enforcement mechanism for
+model turns; the integrating scheduler must include this rule in its payload.
+
+Retrying the same batch with the same topic IDs and per-topic `kind` returns
+`status=stored`, `completion_status=already_completed`, the same terminal/stop
+signal and the first result's digest. It never overwrites a summary, adds delivery effects or consumes a newer
+batch. Topic order is irrelevant. `replay=identical` means identical per-topic
+objects; `replay=text_changed` explicitly means the new text was **ignored**.
+This is first-writer-wins, not a claim that different prose is semantically equal.
+Corrections require a separate operator workflow; complete is not an edit API.
+
+A changed topic set or `kind` is a true structural conflict and still fails with
+`batch_already_completed_differently`, retaining the original result and recording
+the error. Malformed objects, duplicate topics, extra fields, invalid kinds and
+out-of-bounds text still fail validation, including on retries. Do not change
+classification or routes to bypass a conflict. Prose-only contradictions cannot be
+reliably detected here; the winning result remains authoritative and the ignored
+candidate is explicitly reported instead of silently replacing it.
+
+Concurrent complete CLIs wait for the existing runtime lock within the 27-second
+command deadline; other commands retain their nonblocking lock policy. Independent
+Store connections serialize the first-result check and commit. Database contention
+beyond the storage timeout/deadline is still a real operational error.
+
+Seen readiness is independent of summary commit: a later readiness failure is
+retained as `mail-seen:seen_queue_failed`, with `seen_queue=deferred` on the terminal
+response, not a false failure of the already stored summary. Retrying completion
+may recheck idempotent Seen admission after an interrupted post-commit step; it
+never applies Seen or sends routing effects. Existing read-proof rules still apply.
 
 `tick --effects` may service admitted delivery, Seen and error effects within
 its deadline. `dispatch` services one routing effect without IMAP or Seen.

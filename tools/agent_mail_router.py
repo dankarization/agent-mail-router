@@ -42,6 +42,25 @@ def canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def validated_result(result):
+    """Validate candidates even on retry; text is never an update operation."""
+    if not isinstance(result, list) or not result:
+        raise MailError("summary_topics_invalid")
+    topics = {}
+    for item in result:
+        if not isinstance(item, dict) or set(item) != {"route_id", "kind", "summary", "details", "next"}:
+            raise MailError("summary_fields_invalid")
+        rid = item["route_id"]
+        if (not isinstance(rid, str) or not rid or rid in topics
+                or item["kind"] not in ("ack", "result", "blocker", "decision")):
+            raise MailError("summary_route_or_kind_invalid")
+        for key, maximum in [("summary", 500), ("details", 1100), ("next", 300)]:
+            if not isinstance(item[key], str) or not 1 <= len(item[key]) <= maximum:
+                raise MailError("summary_text_invalid")
+        topics[rid] = item
+    return topics
+
+
 def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()[:32]
 
@@ -376,39 +395,41 @@ class Store:
              "messages": msgs} for rid, msgs in sorted(groups.items())]}
 
     def complete(self, bid, result):
-        row = self.db.execute("SELECT * FROM batches WHERE id=?", (bid,)).fetchone()
-        if not row:
-            raise MailError("batch_not_found")
-        if row["result"] is not None:
-            if row["result"] != canonical(result):
-                raise MailError("batch_already_completed_differently")
-            return
-        batch = self.batch()
-        if batch["batch_id"] != bid:
-            raise MailError("batch_not_current")
-        expected = {t["route_id"]: t for t in batch["topics"]}
-        if not isinstance(result, list) or len(result) != len(expected):
-            raise MailError("summary_topics_invalid")
-        seen, prepared = set(), []
-        for item in result:
-            rid = item.get("route_id")
-            if rid not in expected or rid in seen or item.get("kind") not in ("ack", "result", "blocker", "decision"):
-                raise MailError("summary_route_or_kind_invalid")
-            seen.add(rid)
-            for key, maximum in [("summary", 500), ("details", 1100), ("next", 300)]:
-                if not isinstance(item.get(key), str) or not 1 <= len(item[key]) <= maximum:
-                    raise MailError("summary_text_invalid")
-            if set(item) != {"route_id", "kind", "summary", "details", "next"}:
-                raise MailError("summary_fields_invalid")
-            obj = dict(item, sources=[{k: m.get(k) for k in ("key", "sender", "subject", "date", "body_truncated", "reading")}
-                                      for m in expected[rid]["messages"]], route_snapshot=self.routes[rid])
-            # Telegram's 4096 limit counts text after entities; UTF-16 is a safe bound.
-            rendered = self.render(obj, "MAIL-" + "0" * 32, telegram=True)
-            visible = html.unescape(re.sub(r"<[^>]*>", "", rendered))
-            if len(visible.encode("utf-16-le")) // 2 > 4000:
-                raise MailError("summary_too_long")
-            prepared.append(obj)
+        # Claim before reading: independent connections must see the winning commit,
+        # not race through the pending check and fail at the unique summary insert.
         with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute("SELECT * FROM batches WHERE id=?", (bid,)).fetchone()
+            if not row:
+                raise MailError("batch_not_found")
+            candidate = validated_result(result)
+            if row["result"] is not None:
+                accepted = validated_result(json.loads(row["result"]))
+                if ({rid: item["kind"] for rid, item in candidate.items()}
+                        != {rid: item["kind"] for rid, item in accepted.items()}):
+                    raise MailError("batch_already_completed_differently")
+                # The first valid result is authoritative. A new text candidate is
+                # explicitly ignored, not claimed to be semantically equivalent.
+                return {"status": "already_completed", "batch_id": bid,
+                        "terminal": True, "next_action": "NO_REPLY",
+                        "replay": "identical" if candidate == accepted else "text_changed",
+                        "accepted_result_digest": digest(json.loads(row["result"]))}
+            batch = self.batch()
+            if not batch or batch["batch_id"] != bid:
+                raise MailError("batch_not_current")
+            expected = {t["route_id"]: t for t in batch["topics"]}
+            if set(candidate) != set(expected):
+                raise MailError("summary_topics_invalid")
+            prepared = []
+            for rid, item in candidate.items():
+                obj = dict(item, sources=[{k: m.get(k) for k in ("key", "sender", "subject", "date", "body_truncated", "reading")}
+                                          for m in expected[rid]["messages"]], route_snapshot=self.routes[rid])
+                # Telegram's 4096 limit counts text after entities; UTF-16 is a safe bound.
+                rendered = self.render(obj, "MAIL-" + "0" * 32, telegram=True)
+                visible = html.unescape(re.sub(r"<[^>]*>", "", rendered))
+                if len(visible.encode("utf-16-le")) // 2 > 4000:
+                    raise MailError("summary_too_long")
+                prepared.append(obj)
             for item in prepared:
                 rid = item["route_id"]
                 sid, route = digest([bid, rid]), item["route_snapshot"]
@@ -422,6 +443,8 @@ class Store:
                     self.db.execute("INSERT INTO effects VALUES (?,?,?,?,?,NULL,NULL)",
                                     (digest([sid, "notify"]), sid, "notify", route["parent"], "pending"))
             self.db.execute("UPDATE batches SET result=? WHERE id=?", (canonical(result), bid))
+        return {"status": "stored", "batch_id": bid, "terminal": True,
+                "next_action": "NO_REPLY", "accepted_result_digest": digest(result)}
 
     def render(self, summary, marker, telegram=False, fallback=None):
         route, esc = summary["route_snapshot"], html.escape
@@ -654,7 +677,9 @@ def main(argv=None):
             print(canonical(out))
             return 0
         with (args.state_dir / "runtime.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # Completion retries serialize behind another helper invocation;
+            # the existing alarm still bounds the entire command, including wait.
+            fcntl.flock(lock, fcntl.LOCK_EX | (0 if args.command == "complete" else fcntl.LOCK_NB))
             store = Store(args.state_dir / "mail.sqlite3", routes_at(args.routes))
             if args.command == "tick":
                 trigger = (json.loads(args.trigger_state_json) if args.trigger_state_json else
@@ -696,13 +721,21 @@ def main(argv=None):
                 out = store.dispatch_one(Gateway(), Telegram())
             elif args.command == "complete":
                 result = json.loads(args.result_json) if args.result_json else json.loads(base64.b64decode(args.result_b64, validate=True))
-                store.complete(args.batch, result)
+                completion = store.complete(args.batch, result)
+                # Preserve the CLI's successful status for existing summarizers.
+                # Disposition is separate from durability/terminal acknowledgement.
+                out = dict(completion, status="stored", completion_status=completion["status"])
                 from agent_mail_seen import queue_if_ready
                 keys = json.loads(store.db.execute('SELECT keys_json FROM batches WHERE id=?', (args.batch,)).fetchone()[0])
                 for key in keys:
-                    message = json.loads(store.db.execute('SELECT payload FROM mail WHERE key=?', (key,)).fetchone()[0])
-                    queue_if_ready(args.state_dir, CONTENT_ROOT, message, ledger)
-                out = {"status": "stored", "batch_id": args.batch}
+                    try:
+                        message = json.loads(store.db.execute('SELECT payload FROM mail WHERE key=?', (key,)).fetchone()[0])
+                        # Idempotent on retries; also recovers a crash after commit
+                        # but before independent Seen admission. Never sends.
+                        queue_if_ready(args.state_dir, CONTENT_ROOT, message, ledger)
+                    except Exception:
+                        record_error(args.state_dir, 'mail-seen', 'seen_queue_failed', key)
+                        out["seen_queue"] = "deferred"
             elif args.command == "original":
                 row = store.db.execute("SELECT payload FROM mail WHERE key=?", (args.key,)).fetchone()
                 if not row:
