@@ -37,6 +37,11 @@ TZ = ZoneInfo("Asia/Tbilisi")
 class MailError(Exception):
     """Fixed secret-free diagnostic codes only."""
 
+    def __init__(self, code, diagnostic=None, error_outbox=None):
+        super().__init__(code)
+        self.diagnostic = diagnostic
+        self.error_outbox = error_outbox
+
 
 def canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -47,7 +52,7 @@ def validated_result(result):
     if not isinstance(result, list) or not result:
         raise MailError("summary_topics_invalid")
     topics = {}
-    for item in result:
+    for index, item in enumerate(result):
         if not isinstance(item, dict) or set(item) != {"route_id", "kind", "summary", "details", "next"}:
             raise MailError("summary_fields_invalid")
         rid = item["route_id"]
@@ -56,9 +61,28 @@ def validated_result(result):
             raise MailError("summary_route_or_kind_invalid")
         for key, maximum in [("summary", 500), ("details", 1100), ("next", 300)]:
             if not isinstance(item[key], str) or not 1 <= len(item[key]) <= maximum:
-                raise MailError("summary_text_invalid")
+                raise MailError("summary_text_invalid", {
+                    "topic_index": index, "field": key, "minimum": 1,
+                    "maximum": maximum, "actual_length": len(item[key]) if isinstance(item[key], str) else None,
+                    "reason": "length" if isinstance(item[key], str) else "string_required"})
         topics[rid] = item
     return topics
+
+
+def parse_completion(raw, encoded=False):
+    """Do not echo JSON, decoder excerpts, paths or exception strings."""
+    if encoded:
+        try:
+            raw = base64.b64decode(raw, validate=True).decode("utf-8")
+        except (ValueError, UnicodeError):
+            raise MailError("summary_encoding_invalid", {"reason": "base64_utf8_required"}) from None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise MailError("summary_json_invalid", {
+            "line": exc.lineno, "column": exc.colno, "position": exc.pos,
+            "reason": "invalid_escape" if exc.msg.startswith(("Invalid \\escape", "Invalid \\u")) else "json_syntax",
+            "hint": "Use a JSON serializer; escape backslashes as double backslashes."}) from None
 
 
 def digest(value):
@@ -95,7 +119,7 @@ def run_json(argv, timeout=6):
 class Gateway:
     def call(self, method, params):
         return run_json([CLI, "gateway", "call", method, "--params", canonical(params),
-                         "--timeout", "5000", "--json"], timeout=8)
+                         "--timeout", "7000", "--json"], timeout=10)
 
     def validate(self, route, target):
         result = self.call("sessions.list", {"search": target, "limit": 10})
@@ -120,9 +144,20 @@ class Gateway:
         # Positive evidence only: bounded absence never authorizes an uncertain retry.
         result = self.call("chat.history", {"sessionKey": target, "limit": 100,
                                             "maxBytes": 200000, "maxChars": 20000})
-        for msg in result.get("messages", []):
-            if marker in canonical(msg):
-                return msg.get("id") or msg.get("messageId") or marker
+        if result.get("sessionKey") != target or not isinstance(result.get("messages"), list):
+            raise MailError("context_history_invalid")
+        for msg in result["messages"]:
+            if not isinstance(msg, dict) or msg.get("role") != "assistant" or msg.get("model") != "gateway-injected":
+                continue
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            metadata = msg.get("__openclaw")
+            receipt = msg.get("id") or msg.get("messageId") or (metadata.get("id") if isinstance(metadata, dict) else None)
+            if isinstance(receipt, str) and receipt and any(
+                    isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str)
+                    and marker in part["text"].splitlines() for part in content):
+                return receipt
         return None
 
 
@@ -579,9 +614,9 @@ class Store:
             self.db.execute("UPDATE effects SET status=?,receipt=?,error=? WHERE id=?",
                             (result["status"], result.get("receipt"), result.get("error"), row["id"]))
         if result.get("error"):
-            record_error(Path(self.db.execute('PRAGMA database_list').fetchone()[2]).parent,
-                         'mail-delivery', result['error'], row['id'])
-            raise MailError(result["error"])
+            alert = record_error(Path(self.db.execute('PRAGMA database_list').fetchone()[2]).parent,
+                                 'mail-delivery', result['error'], row['id'])
+            raise MailError(result["error"], error_outbox=alert)
         return {"status": result["status"], "kind": row["kind"]}
 
     def status(self):
@@ -685,7 +720,6 @@ def main(argv=None):
                 trigger = (json.loads(args.trigger_state_json) if args.trigger_state_json else
                            json.loads(base64.b64decode(args.trigger_state_b64, validate=True)) if args.trigger_state_b64 else {})
                 store.bootstrap(trigger)
-                started = time.monotonic()
                 # Error delivery is independent of successful IMAP polling and routing.
                 error_dispatch = ledger.dispatch_error(Telegram()) if args.effects else {'status': 'disabled'}
                 snapshot_result = poll(store.get("cursor"))
@@ -696,15 +730,24 @@ def main(argv=None):
                 store.reroute()
                 batch = store.batch()
                 effects = []
-                # Admit a step only with its worst-case two CLI calls (16s) left.
+                # Admit a step only with its worst-case two CLI calls (20s) left.
                 # Typical empty IMAP + CLI permits several destinations per tick.
-                while args.effects and time.monotonic() - started < 10 and len(effects) < 10:
-                    effect = store.dispatch_one(Gateway(), Telegram())
+                while args.effects and time.monotonic() - runtime_started < 6 and len(effects) < 10:
+                    try:
+                        effect = store.dispatch_one(Gateway(), Telegram())
+                    except MailError as exc:
+                        if str(exc) == "runtime_deadline":
+                            raise
+                        # Delivery has its own durable state. Never discard a
+                        # newly admitted batch/cursor from the public response.
+                        code = fixed_code(str(exc))
+                        alert = exc.error_outbox or record_error(args.state_dir, 'mail-delivery', code)
+                        effect = {"status": "error", "error": code, "retained": True, "error_outbox": alert}
                     effects.append(effect)
-                    if effect["status"] in ("quiet", "deferred", "pending"):
+                    if effect["status"] in ("quiet", "deferred", "pending", "error"):
                         break
                 seen_dispatch = {'status': 'disabled'}
-                if args.effects and time.monotonic() - started < 12:
+                if args.effects and time.monotonic() - runtime_started < 12:
                     pending = ledger.db.execute("SELECT key FROM seen WHERE status='pending' ORDER BY rowid LIMIT 1").fetchone()
                     if pending:
                         try:
@@ -714,13 +757,15 @@ def main(argv=None):
                             ledger.error('mail-seen', 'seen_worker_failed', pending['key'])
                             seen_dispatch = {'status': 'pending'}
                 effect = effects if args.effects else [{"status": "disabled"}]
-                out = {"fire": batch is not None, "batch": batch,
+                out = {"status": "degraded" if any(e.get("error") for e in effects) else "ok",
+                       "fire": batch is not None, "batch": batch,
                        "state": dict(trigger, cursor=store.get("cursor"), mail_runtime_version=1),
                        "dispatch": effect, "error_dispatch": error_dispatch, "seen_dispatch": seen_dispatch, "diagnostics": store.status()}
             elif args.command == "dispatch":
                 out = store.dispatch_one(Gateway(), Telegram())
             elif args.command == "complete":
-                result = json.loads(args.result_json) if args.result_json else json.loads(base64.b64decode(args.result_b64, validate=True))
+                result = parse_completion(args.result_json if args.result_json is not None else args.result_b64,
+                                          encoded=args.result_json is None)
                 completion = store.complete(args.batch, result)
                 # Preserve the CLI's successful status for existing summarizers.
                 # Disposition is separate from durability/terminal acknowledgement.
@@ -766,14 +811,17 @@ def main(argv=None):
         return 0
     except Exception as exc:
         code = fixed_code(str(exc)) if isinstance(exc, MailError) else 'mail_runtime_failed'
-        alert = record_error(args.state_dir, 'mail-monitor', code)
+        alert = (exc.error_outbox if isinstance(exc, MailError) else None) or record_error(args.state_dir, 'mail-monitor', code)
         dispatched = {'status': 'retained'}
         if args.command == 'tick' and args.effects and ledger and time.monotonic() - runtime_started < 22:
             try:
                 dispatched = ledger.dispatch_error(Telegram())
             except Exception:
                 pass  # Alert remains durable, including unknown transport outcomes.
-        print(canonical({"status": "error", "error": code, "error_outbox": alert, "dispatch": dispatched}))
+        out = {"status": "error", "error": code, "error_outbox": alert, "dispatch": dispatched}
+        if isinstance(exc, MailError) and exc.diagnostic is not None:
+            out["validation"] = exc.diagnostic
+        print(canonical(out))
         return 1
     finally:
         if store:

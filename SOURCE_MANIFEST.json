@@ -25,8 +25,8 @@
     },
     {
       "path": "docs/operations.md",
-      "bytes": 8388,
-      "sha256": "a36e1992cfdf5d6aedd178716072ab96d95b064c57a3f1548a6917bec61564c3"
+      "bytes": 9710,
+      "sha256": "dd4383227cbf8607416f5e4b804ee873db86fb7bcf2477cc91b01871c0d63993"
     },
     {
       "path": "examples/routes.example.json",
@@ -55,8 +55,8 @@
     },
     {
       "path": "tools/agent_mail_router.py",
-      "bytes": 45435,
-      "sha256": "de56628d701766e2a7fef71e18f5fc1582fb7a45ff1d97b5484d73a5d680c7e5"
+      "bytes": 48381,
+      "sha256": "440f721389619e6e3ff0fae3899adafe8fba32c33380c43fadbb26a082c24a3a"
     },
     {
       "path": "tools/agent_mail_seen.py",
@@ -92,6 +92,11 @@
       "path": "tools/tests/test_agent_mail_portability.py",
       "bytes": 3377,
       "sha256": "acf1b4c739c215228336ba14eee8e723c0e07a154cbbcfd6fa34c88a91919187"
+    },
+    {
+      "path": "tools/tests/test_agent_mail_recovery.py",
+      "bytes": 7121,
+      "sha256": "765185e0d6ffac6f4db1ffff2de2f6f0bb24354734cf942c7a4d9e6a1edd6fe7"
     },
     {
       "path": "tools/tests/test_agent_mail_router.py",

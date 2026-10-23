@@ -55,8 +55,21 @@ response, not a false failure of the already stored summary. Retrying completion
 may recheck idempotent Seen admission after an interrupted post-commit step; it
 never applies Seen or sends routing effects. Existing read-proof rules still apply.
 
+Invalid completion text returns `summary_text_invalid` with a bounded `validation`
+object: topic index, field, actual length, minimum/maximum and a fixed reason.
+Malformed JSON returns `summary_json_invalid` with line/column/position and a
+serializer/escaping hint; invalid base64/UTF-8 returns `summary_encoding_invalid`.
+No candidate text, decoder excerpt or exception payload is echoed or journaled.
+These remain errors (exit 1), including after an earlier successful completion.
+
 `tick --effects` may service admitted delivery, Seen and error effects within
-its deadline. `dispatch` services one routing effect without IMAP or Seen.
+its deadline. An operational routing-delivery error is durably retained and
+reported in `dispatch`, with top-level `status=degraded` (exit 0). The admitted
+`fire`, `batch` and authoritative `state.cursor` are still returned; callers must
+process them even when delivery is degraded. This is not a successful-delivery
+claim. Polling, storage, deadline and unexpected runtime failures remain errors.
+Gateway calls allow 7 seconds plus CLI overhead (10-second process cap); tick
+admits a two-RPC step only while its 20-second worst-case fits the command deadline. `dispatch` services one routing effect without IMAP or Seen.
 `errors-dispatch` services only the independent mail error outbox.
 
 ## Read-only state inspection
@@ -95,7 +108,10 @@ Telegram has no idempotent sendMessage. An uncertain ACK is held `unknown`;
 interrupted routing intent becomes unknown on Store reopen. Neither is blindly
 replayed. Rate-limit rejection remains bounded pending; definite rejection is
 held. Positive context-marker evidence may reconcile a context; bounded marker
-absence never permits retry. Independent topics continue.
+absence never permits retry. Reconciliation requires a Gateway-injected assistant
+message in the exact target session, an exact marker line and a real persisted
+message ID (including the current `__openclaw.id` history shape). A quoted user
+marker, an ordinary model response or a marker without a receipt is not proof. Independent topics continue.
 
 After independently proving receipt or definitive non-delivery, operator commands
 `resolve`, `resolve-error` and `resolve-legacy` accept evidence. Read their CLI
