@@ -269,7 +269,7 @@ class ExtendedRoutingTests(unittest.TestCase):
         self.db.ingest(snap([unknown]))
         self.db.reroute()
         self.assertIsNone(self.db.batch())
-        self.assertEqual(self.db.status()['triage'][0]['reason'], 'unknown_sender_review')
+        self.assertEqual(self.db.status()['triage'][0]['reason'], 'external_thread_unregistered')
         self.assertEqual(self.db.db.execute('SELECT count(*) FROM effects').fetchone()[0], 0)
         self.assertEqual(self.db.db.execute('SELECT count(*) FROM anchors WHERE id=?', (unknown['message_id'],)).fetchone()[0], 0)
 

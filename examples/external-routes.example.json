@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "authorized_report_destinations": [
+    {
+      "parent": "agent:main:telegram:group:-1009000000001:topic:1",
+      "evidence": "Synthetic operator authorization; not a live destination."
+    }
+  ],
+  "routes": [
+    {
+      "id": "example-supplier",
+      "title": "Example supplier replies",
+      "parent": "agent:main:telegram:group:-1009000000001:topic:1",
+      "children": [],
+      "message_ids": [],
+      "task_refs": [],
+      "intake_policy": "external_report_only",
+      "evidence": "Synthetic verified task origin and sent evidence.",
+      "outbound_threads": [
+        {
+          "message_id": "<example-outgoing@example.invalid>",
+          "recipient": "sales@example.invalid",
+          "task_ref": "[EXAMPLE-INQUIRY]",
+          "sent_evidence": "Synthetic verified Sent receipt"
+        }
+      ]
+    },
+    {
+      "id": "general",
+      "title": "Example general mail",
+      "parent": "agent:main:telegram:direct:900000001:thread:900000001:9005",
+      "children": [],
+      "message_ids": [],
+      "task_refs": [],
+      "fallback": true,
+      "evidence": "Synthetic operator-selected general mail destination."
+    }
+  ]
+}

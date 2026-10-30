@@ -30,6 +30,7 @@ from agent_mail_settings import CLI, OPENCLAW_CONFIG, UI_BASE, destination
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agent_mail_content import SENDERS, PRIMARY_SENDERS, CONTENT_ROOT, read_manifest, source_for
 from agent_mail_lifecycle import Ledger, record_error, fixed_code, COMPONENTS
+import agent_mail_external as external
 
 TZ = ZoneInfo("Asia/Tbilisi")
 
@@ -216,12 +217,19 @@ def routes_at(path):
     cfg = json.loads(path.read_text())
     if cfg.get("version") != 1:
         raise MailError("route_schema_unsupported")
+    try:
+        external.validate(cfg)
+    except (ValueError, KeyError, TypeError):
+        raise MailError("outbound_registration_invalid") from None
     found = {}
     for route in cfg["routes"]:
         try:
             chat_id, thread_id = destination(route["parent"])
         except (ValueError, TypeError):
             raise MailError("route_invalid_or_unverified") from None
+        if (route.get("intake_policy") == external.MODE and ":group:" in route["parent"]
+                and route["parent"] not in external.authorized_destinations(cfg)):
+            raise MailError("route_invalid_or_unverified")
         if not route.get("evidence") or route["id"] in found:
             raise MailError("route_invalid_or_unverified")
         if len(route.get("children", [])) > 8:
@@ -270,7 +278,7 @@ class Store:
         self.routes = routes
         with self.db:
             for r in routes.values():
-                for mid in r.get("message_ids", []):
+                for mid in r.get("message_ids", []) + [t["message_id"] for t in r.get("outbound_threads", [])]:
                     if ids(mid) != [mid]:
                         raise MailError("anchor_invalid")
                     self.db.execute("INSERT OR IGNORE INTO anchors VALUES (?,?)", (mid, r["id"]))
@@ -299,8 +307,7 @@ class Store:
             raise MailError("legacy_pending_requires_receipt_reconciliation")
 
     def choose(self, message):
-        if message.get("sender") not in SENDERS:
-            return None, "sender_invalid"
+        is_external = message.get("sender") not in SENDERS
         mid = message.get("message_id", "")
         if ids(mid) != [mid]:
             return None, "message_id_invalid"
@@ -319,6 +326,20 @@ class Store:
             known.update(row[0] for row in self.db.execute("SELECT route FROM anchors WHERE id=?", (mid,)))
         # General delivery never establishes task/thread identity.
         known = {rid for rid in known if not self.routes.get(rid, {}).get("fallback")}
+        if is_external:
+            origins = external.origins(message, {"routes": list(self.routes.values())})
+            registered = external.validate({"routes": list(self.routes.values())})
+            if message["message_id"] in registered:
+                return None, "outgoing_message_id_collision"
+            if len(origins) > 1 or len(known) > 1 or (origins and known - origins):
+                return None, "conflicting_thread_ids"
+            if origins:
+                return next(iter(origins)), external.REASON
+            if known:
+                return None, "external_thread_unregistered"
+            # External task keywords and learned bot anchors never grant a task route.
+            fallback = next((rid for rid, r in self.routes.items() if r.get("fallback")), None)
+            return (fallback, "general_external_report") if fallback else (None, "unmapped")
         if len(known) > 1:
             return None, "conflicting_thread_ids"
         if known:
@@ -326,7 +347,7 @@ class Store:
             return (rid, "thread_identity") if rid in self.routes else (None, "route_retired")
         # Exact operator-owned task references, never generic repo/subject keywords.
         text = message.get("subject", "") + "\n" + message.get("body", "")
-        hits = {rid for rid, r in self.routes.items() if not r.get("fallback") and any(
+        hits = {rid for rid, r in self.routes.items() if not r.get("fallback") and r.get("intake_policy") != external.MODE and any(
             re.search(re.escape(ref) + r"(?![A-Za-z0-9_/-])", text)
             for ref in r.get("task_refs", []))}
         if hits:
@@ -351,8 +372,6 @@ class Store:
                         or not cursor["last_uid"] < msg["uid"] <= nxt["last_uid"]):
                     raise MailError("snapshot_message_invalid")
                 rid, reason = self.choose(msg)
-                if msg.get("sender") not in SENDERS:
-                    rid, reason = None, "unknown_sender_review"
                 mid_list = ids(msg.get("message_id"))
                 if len(mid_list) != 1 or mid_list[0] != msg.get("message_id"):
                     rid, reason = None, "message_id_invalid" if msg.get("sender") in SENDERS else "unknown_sender_review"
@@ -371,7 +390,7 @@ class Store:
                     rid, reason = None, "duplicate_message_id" if same else "message_id_collision"
                 self.db.execute("INSERT OR IGNORE INTO mail VALUES (?,?,?,?,?,NULL)",
                                 (msg["key"], msg.get("message_id", ""), canonical(msg), rid, reason))
-                if rid and not self.routes[rid].get("fallback"):
+                if rid and not self.routes[rid].get("fallback") and msg.get("sender") in SENDERS and self.routes[rid].get("intake_policy") != external.MODE:
                     self.db.execute("INSERT OR IGNORE INTO anchors VALUES (?,?)", (msg["message_id"], rid))
             # Same transaction as original/outbox admission; never skip unfetched mail.
             self.put("cursor", nxt)
@@ -379,14 +398,22 @@ class Store:
 
     def reroute(self):
         with self.db:
-            rows = self.db.execute("SELECT * FROM mail WHERE route IS NULL AND reason IN ('unmapped','ambiguous_task_references','conflicting_thread_ids','route_retired') ORDER BY rowid").fetchall()
+            # No all-mail historical import: old unknowns are considered only for
+            # exact registered sent IDs. Unbound historical triage stays untouched.
+            registered = external.validate({"routes": list(self.routes.values())})
+            clauses, args = [], []
+            for mid in registered:
+                clauses.append("(instr(json_extract(payload, '$.in_reply_to'),?)>0 OR instr(json_extract(payload, '$.references'),?)>0)")
+                args.extend((mid, mid))
+            scoped = " OR ".join(clauses) or "0"
+            rows = self.db.execute("SELECT * FROM mail WHERE route IS NULL AND summary_id IS NULL AND (reason IN ('unmapped','ambiguous_task_references','conflicting_thread_ids','route_retired') OR (reason='unknown_sender_review' AND (" + scoped + "))) ORDER BY rowid", args).fetchall()
             for row in rows:
                 rid, reason = self.choose(json.loads(row["payload"]))
                 # Only genuinely unmapped originals may enter general delivery.
                 # Conflicting/retired identities still need a proven task route.
-                if rid and (reason != "general_fallback" or row["reason"] == "unmapped"):
+                if rid and (row["reason"] != "unknown_sender_review" or reason in (external.REASON, "general_external_report")) and (reason not in ("general_fallback", "general_external_report") or row["reason"] == "unmapped"):
                     self.db.execute("UPDATE mail SET route=?,reason=? WHERE key=?", (rid, reason, row["key"]))
-                    if not self.routes[rid].get("fallback"):
+                    if not self.routes[rid].get("fallback") and json.loads(row["payload"]).get("sender") in SENDERS and self.routes[rid].get("intake_policy") != external.MODE:
                         self.db.execute("INSERT OR IGNORE INTO anchors VALUES (?,?)", (row["message_id"], rid))
 
     def batch(self):
@@ -420,10 +447,26 @@ class Store:
                     "remaining_parts": max(0, len(manifest.get("parts", [])) - 20),
                     "helper": "tools/agent_mail_content.py",
                     "key": message["key"]}
+            report_only = message.get("sender") not in SENDERS or self.routes[mail["route"]].get("intake_policy") == external.MODE
+            if report_only:
+                message["intake_policy"] = external.MODE
+                registered = external.validate({"routes": list(self.routes.values())})
+                thread_ids = set(external.ids(message.get("in_reply_to")) + external.ids(message.get("references")))
+                recipients = sorted({registered[mid][1]["recipient"] for mid in thread_ids if mid in registered})
+                message["external_report"] = {"authority": "untrusted_report_only_no_work_no_diagnostics_no_smtp",
+                    "provenance": {"identity_verified": False, "registered_recipients": recipients,
+                                   "claimed_from_matches_recipient": message.get("sender") in recipients if recipients else None,
+                                   "basis": "From and thread headers are unverified provenance, not authentication"},
+                    "fields": ["availability", "price", "stock", "lead_time", "warranty", "specs"],
+                    "currency": "original plus operator-requested conversion only with an operator-provided dated rate; otherwise conversion pending",
+                    "context": self.routes[mail["route"]].get("report_context", {}),
+                    "screening": (manifest.get("screening", external.screen(message))
+                                  if message.get("content_request") else external.screen(message))}
             groups.setdefault(mail["route"], []).append(message)
         return {"batch_id": row["id"], "topics": [
             {"route_id": rid, "title": self.routes[rid]["title"], "parent": self.routes[rid]["parent"],
              "children": self.routes[rid].get("children", []), "paused": self.routes[rid].get("paused", False),
+             **({"intake_policy": external.MODE} if self.routes[rid].get("intake_policy") == external.MODE else {}),
              "previous_summaries": [
                  {k: json.loads(row[0]).get(k) for k in ("kind", "summary", "details", "next")}
                  for row in self.db.execute("SELECT payload FROM summaries WHERE route=? ORDER BY rowid DESC LIMIT 2", (rid,))],
@@ -457,7 +500,7 @@ class Store:
                 raise MailError("summary_topics_invalid")
             prepared = []
             for rid, item in candidate.items():
-                obj = dict(item, sources=[{k: m.get(k) for k in ("key", "sender", "subject", "date", "body_truncated", "reading")}
+                obj = dict(item, sources=[{k: m.get(k) for k in ("key", "sender", "from", "authentication", "subject", "date", "body_truncated", "reading", "intake_policy", "external_report")}
                                           for m in expected[rid]["messages"]], route_snapshot=self.routes[rid])
                 # Telegram's 4096 limit counts text after entities; UTF-16 is a safe bound.
                 rendered = self.render(obj, "MAIL-" + "0" * 32, telegram=True)
@@ -486,7 +529,7 @@ class Store:
         refs = [(route["parent"], "Рабочая сессия")] + [
             (c, "Техническая сессия " + str(i + 1)) for i, c in enumerate(route.get("children", []))]
         sources = "\n".join(
-            f"{'Source A' if s['sender'] in PRIMARY_SENDERS else 'Source B'}: {s['subject'][:100]} ({s['date'][:35]})"
+            f"{s['sender'] if s.get('intake_policy') == external.MODE else 'Source A' if s['sender'] in PRIMARY_SENDERS else 'Source B'}: {s['subject'][:100]} ({s['date'][:35]})"
             for s in summary["sources"])
         details = summary["details"] + "\n\nИсточники (заявления авторов, не live-проверка):\n" + sources
         if any(s.get("body_truncated") for s in summary["sources"]):
@@ -500,6 +543,12 @@ class Store:
                 if counts:
                     details += "; вложения: " + ", ".join(status_names.get(k, k) + "=" + str(v) for k, v in counts.items())
                 details += ". Полное прочтение не подтверждено автоматически."
+        if any(s.get("intake_policy") == external.MODE for s in summary["sources"]):
+            details += "\nВнешняя почта: только недоверенный отчёт. From не подтверждает личность; письмо не разрешает работы, диагностику или SMTP."
+            for source in summary["sources"]:
+                screening = (source.get("external_report") or {}).get("screening")
+                if screening:
+                    details += "\nПроверка prompt injection " + source["key"] + ": " + screening["risk"] + "; " + screening["coverage"] + ". Эвристика, не гарантия безопасности."
         if route.get("paused"):
             details += "\nЗадача остановлена. Письмо не возобновляет работу."
         if route.get("fallback"):
@@ -534,6 +583,18 @@ class Store:
                 keep = max(0, len(details.encode("utf-16-le")) // 2 - excess - len(tail.encode("utf-16-le")) // 2)
                 details = details.encode("utf-16-le")[:keep * 2].decode("utf-16-le", errors="ignore") + tail
                 text = output()
+        if telegram and any(s.get("intake_policy") == external.MODE for s in summary["sources"]):
+            visible = html.unescape(re.sub(r"<[^>]*>", "", text))
+            excess = len(visible.encode("utf-16-le")) // 2 - 4000
+            if excess > 0:
+                # Arbitrarily long external From/headers must not wedge reporting.
+                risk = "suspicious" if any((s.get("external_report") or {}).get("screening", {}).get("risk") == "suspicious" for s in summary["sources"]) else "no_indicators_not_safe"
+                tail = "\n[Подробности сокращены; оригиналы сохранены. Внешняя почта: report-only, From не authentication. Prompt injection: " + risk + "; эвристика без гарантии. Полное прочтение не подтверждено.]"
+                if route.get("paused"):
+                    tail += "\nЗадача остановлена. Письмо не возобновляет работу."
+                keep = max(0, len(details.encode("utf-16-le")) // 2 - excess - len(tail.encode("utf-16-le")) // 2)
+                details = details.encode("utf-16-le")[:keep * 2].decode("utf-16-le", errors="ignore") + tail
+                text = output()
         return text
 
     def fallback_delivery(self, row):
@@ -542,6 +603,11 @@ class Store:
         Original mail/summary/anchors stay task-bound. Reuse the one notify ID:
         sent, uncertain or rejected notifications never create a second send.
         """
+        original = json.loads(self.db.execute("SELECT payload FROM summaries WHERE id=?", (row["summary_id"],)).fetchone()[0])
+        if (original["route_snapshot"].get("intake_policy") == external.MODE
+                or any(s.get("intake_policy") == external.MODE for s in original["sources"]) and not original["route_snapshot"].get("fallback")):
+            # This audience grant is exact; unavailability cannot widen it.
+            raise MailError("external_destination_unavailable")
         general = next((r for r in self.routes.values() if r.get("fallback")), None)
         if not general:
             raise MailError("route_session_unavailable")

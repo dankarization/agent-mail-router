@@ -10,13 +10,18 @@
     },
     {
       "path": "README.md",
-      "bytes": 4386,
-      "sha256": "ab6412258981b31c4ac063216e28f140562607ccb903f895c5a5870193cdba6d"
+      "bytes": 5416,
+      "sha256": "fd5afc4d9ef25cdc06075a286790346eddd07e7002e7499e71ea42dcbac3204b"
     },
     {
       "path": "docs/configuration.md",
-      "bytes": 5162,
-      "sha256": "f1f5e3a58dd58be27dbb2f23f9c40bf09eede88acc1f99adebf719be8e2f5b5c"
+      "bytes": 5398,
+      "sha256": "fea9b44cec816288b96cda0210781786bdd26d3f48c1ad50461261236e894270"
+    },
+    {
+      "path": "docs/external-intake.md",
+      "bytes": 5643,
+      "sha256": "b8e57100f0a68544eac565e2a6347e936064ab608b7dc56cd96eb146f94d0afa"
     },
     {
       "path": "docs/extraction.md",
@@ -25,8 +30,13 @@
     },
     {
       "path": "docs/operations.md",
-      "bytes": 9710,
-      "sha256": "dd4383227cbf8607416f5e4b804ee873db86fb7bcf2477cc91b01871c0d63993"
+      "bytes": 10427,
+      "sha256": "30cf8bed88ba9528b423b2937abfdf124167c22e7dba7ed4c30ea2e6b0811d82"
+    },
+    {
+      "path": "examples/external-routes.example.json",
+      "bytes": 1173,
+      "sha256": "4c435cd115b61e0e3aaeec9322b45442fdf49ab2d76fb24ddcc90d129b0695ed"
     },
     {
       "path": "examples/routes.example.json",
@@ -45,8 +55,13 @@
     },
     {
       "path": "tools/agent_mail_content.py",
-      "bytes": 27437,
-      "sha256": "38ae2fc4133b49ac33515b9dba4ed0814fcbbdb555fdc9b79492f7c599f0ad71"
+      "bytes": 29460,
+      "sha256": "1da582bbd5155fa06dd6aaafc321b4fbb36f98b9c4a0d4e0e4ac748ac6badfce"
+    },
+    {
+      "path": "tools/agent_mail_external.py",
+      "bytes": 5706,
+      "sha256": "b6979f22aaca05c951580131ae2a2344c08cbeb5cc71ada5b76335ef867e04a7"
     },
     {
       "path": "tools/agent_mail_lifecycle.py",
@@ -55,13 +70,13 @@
     },
     {
       "path": "tools/agent_mail_router.py",
-      "bytes": 48381,
-      "sha256": "440f721389619e6e3ff0fae3899adafe8fba32c33380c43fadbb26a082c24a3a"
+      "bytes": 54841,
+      "sha256": "987af472deb212ed4625ec32fc77d3b888f26b7b6b25cf533dd6b885bca89505"
     },
     {
       "path": "tools/agent_mail_seen.py",
-      "bytes": 5893,
-      "sha256": "438415c896d0b761159f88cf64dd80d3949f9824af174366db81b80b8602e0fa"
+      "bytes": 5940,
+      "sha256": "81455e6349355b3f2ffe72f0d023d64ae5a58811fdb7a692005b5f6d2196af62"
     },
     {
       "path": "tools/agent_mail_settings.py",
@@ -70,8 +85,13 @@
     },
     {
       "path": "tools/agent_mail_snapshot.py",
-      "bytes": 15557,
-      "sha256": "c004dc857da08b52d0c8dfb9e172f9ddfcaf8b8eb6692fd7e572f8185ad4039e"
+      "bytes": 15731,
+      "sha256": "4c11d59f608ea093a9749108546e471b62b23c7c07a2ba7a883acca0eff6397c"
+    },
+    {
+      "path": "tools/register_outbound.py",
+      "bytes": 2452,
+      "sha256": "e1183a7e2861911ddbac07d57d30b526cc5681ded10ac7e50b48be4b8378f6a2"
     },
     {
       "path": "tools/tests/test_agent_mail_completion.py",
@@ -80,8 +100,13 @@
     },
     {
       "path": "tools/tests/test_agent_mail_content.py",
-      "bytes": 15510,
-      "sha256": "56c9845ff9f43ddd03a8672116750410c9759ebf91a0e2477a08403c365e70e4"
+      "bytes": 15517,
+      "sha256": "4885c76a80eb1b534b9877b8eb29e86b0076069e494ea20aff03148fe9419871"
+    },
+    {
+      "path": "tools/tests/test_agent_mail_external.py",
+      "bytes": 22530,
+      "sha256": "8e171e83dd645b661fed7d381417e12d83ff2e62c163c2a640d8494460d70f50"
     },
     {
       "path": "tools/tests/test_agent_mail_lifecycle.py",
@@ -100,13 +125,13 @@
     },
     {
       "path": "tools/tests/test_agent_mail_router.py",
-      "bytes": 45126,
-      "sha256": "750aa799656c102fb3e1d1d86b21ab385b5a9e27f340c027b96f66c075824c35"
+      "bytes": 45499,
+      "sha256": "689490c0b21e9e091935b1ab84a6670ec158ad5d66cf6a7b77bb87fe88f68fdf"
     },
     {
       "path": "tools/tests/test_agent_mail_snapshot.py",
-      "bytes": 12726,
-      "sha256": "4381219a34f7492218576337d01968d3e5971576a925d95a50c5ea1c536a69b9"
+      "bytes": 12751,
+      "sha256": "3a7f19e452ccd82b006f79f3b1f7868eb1f2b58991dafb220f0cd089836f0547"
     }
   ]
 }

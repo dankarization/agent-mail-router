@@ -89,7 +89,10 @@ outbound delivery; that is not proof of user receipt.
 
 Thread Message-ID identity wins over task references, then general fallback if
 explicitly configured and safe. Generic topic words do not establish identity.
-Unknown senders cannot acquire anchors, create batches or cause delivery.
+Unknown senders cannot acquire anchors or execution/diagnostic capabilities.
+New external mail can enter report-only batches: verified operator-registered
+outgoing IDs select an origin, otherwise only the configured general fallback
+is eligible. Task keywords alone do not select a task for external mail.
 Changing routes cannot reroute already classified/delivered summaries.
 
 Context is validated/serviced before notification, detecting an absent technical
@@ -102,7 +105,8 @@ unchanged. Multiple unavailable contexts still create at most one notification.
 Notifications run only from 10:00 through 23:59 in Asia/Tbilisi, including the last
 transport-time gate. Context can run at night. Available-route targets and receipts
 are unchanged by fallback. A notification that is sent, inflight, unknown or
-rejected is not copied to general.
+rejected is not copied to general. An external task report is held when its exact
+destination is unavailable; destination failure cannot widen its audience.
 
 Telegram has no idempotent sendMessage. An uncertain ACK is held `unknown`;
 interrupted routing intent becomes unknown on Store reopen. Neither is blindly
@@ -122,8 +126,12 @@ help; do not invent receipt strings or delete rows to force retry.
 `agent_mail_content.py` provides `prepare`, `status`, `handoff`,
 `accept`, `read` and `seen`. Prepare and Seen require explicit individual keys;
 no implicit historical backfill. Acquisition uses EXAMINE/BODY.PEEK and does not
-mark mail read. Unknown-source preparation requires explicit review and never
-promotes sender trust.
+mark mail read. Exact runtime-admitted report-only rows permit preparation and
+Seen eligibility checks without --include-unknown; the stored row and operator
+configuration, not a mail-provided policy flag, establish this reading boundary.
+Other unknown-source preparation still requires explicit review and never
+promotes sender trust. Seen application still requires full read proof plus an
+accepted summary; reporting or screening alone cannot establish either.
 
 Limits include 64 MiB EML, 24 MiB decoded part, 16 MiB text per part, 256 MIME
 nodes, 24,000 characters per read, 1 GiB physical content store, 180-second worker

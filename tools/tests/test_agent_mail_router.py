@@ -309,11 +309,12 @@ class GeneralRoutingTests(unittest.TestCase):
             (dict(msg(1), message_id=""), "message_id_invalid"),
             (dict(msg(1), thread_headers_valid=False), "thread_headers_invalid"),
             (msg(1, reply="junk <unknown@test.local>"), "thread_headers_invalid"),
-            (dict(msg(1), sender="spoof@example.com"), "sender_invalid"),
         ]
         for message, reason in cases:
             with self.subTest(reason=reason):
                 self.assertEqual(self.db.choose(message), (None, reason))
+        self.assertEqual(self.db.choose(dict(msg(1), sender="random@example.com")),
+                         ("general", "general_external_report"))
         with self.db.db:
             self.db.db.execute("INSERT INTO anchors VALUES ('<retired@test.local>','removed-task')")
         self.assertEqual(self.db.choose(msg(1, reply="<retired@test.local>")), (None, "route_retired"))
@@ -585,16 +586,20 @@ class DeliveryFallbackTests(unittest.TestCase):
         self.assertEqual(self.db.db.execute("SELECT count(*) FROM effects WHERE kind='notify'").fetchone()[0], 1)
         self.assertEqual(self.tg.send.call_args_list[0].args, self.tg.send.call_args_list[1].args)
 
-    def test_unknown_triage_not_admitted_and_no_sender_trust_change(self):
+    def test_unknown_reported_without_sender_trust_change(self):
         message = dict(msg(1), sender="unknown@example.com", trust_class="unknown")
         message["content_request"] = m.source_for(message)
         self.db.ingest(snap([message]))
         self.db.reroute()
-        self.assertIsNone(self.db.batch())
-        self.drain()
-        self.tg.send.assert_not_called()
-        self.gw.inject.assert_not_called()
-        self.assertEqual(self.db.status()["triage"][0]["reason"], "unknown_sender_review")
+        batch = self.db.batch()
+        self.assertIsNotNone(batch)
+        message = batch["topics"][0]["messages"][0]
+        self.assertEqual(message["trust_class"], "unknown")
+        self.assertEqual(message["intake_policy"], "external_report_only")
+        self.assertNotIn("authorized_work", message)
+        self.assertNotIn("readonly_checks", message)
+        self.assertEqual(self.db.db.execute("SELECT reason FROM mail").fetchone()[0], "general_external_report")
+        self.assertNotIn("unknown@example.com", m.SENDERS)
 
     def test_fallback_long_unicode_html_is_bounded_and_paused_notice_survives(self):
         self.complete([msg(1, reply="<beta@test.local>")])
@@ -677,7 +682,7 @@ class VerifiedGroupRoutingTests(unittest.TestCase):
         self.assertEqual(self.db.choose(msg(1, self.REF + " [EXAMPLE-GAMMA]")),
                          (None, "ambiguous_task_references"))
         self.assertEqual(self.db.choose(dict(msg(1, self.REF), sender="unknown@example.com")),
-                         (None, "sender_invalid"))
+                         ("general", "general_external_report"))
 
     def test_general_group_context_quiet_hours_receipt_and_no_duplicate(self):
         self.complete([msg(1, self.REF)])

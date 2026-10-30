@@ -46,6 +46,9 @@ another operator-owned map. Schema version 1 has a `routes` array:
 - `paused`: keep context without authorizing resume.
 - Optional `fallback: true` on at most one general route; it cannot have task
   refs, Message-ID anchors, children or paused state.
+- Optional `outbound_threads` binds exact operator-verified sent IDs to a task.
+  External report-only routes and exact extra destination grants are described
+  in [external intake](external-intake.md); no global sender trust is added.
 
 Direct parent syntax: `agent:main:telegram:direct:CHAT:thread:CHAT:TOPIC`.
 Group parent syntax: `agent:main:telegram:group:NEGATIVE_CHAT:topic:TOPIC`.

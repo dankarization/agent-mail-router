@@ -206,7 +206,7 @@ def plain_part(tree, prefix="", subtype="PLAIN"):
 
 
 def read_message(client, uid, validity):
-    data = fetch(client, uid, f"(UID BODY.PEEK[HEADER.FIELDS (FROM TO DATE SUBJECT MESSAGE-ID IN-REPLY-TO REFERENCES AUTHENTICATION-RESULTS RECEIVED-SPF DKIM-SIGNATURE)]<0.{HEADER_BYTES}>)")
+    data = fetch(client, uid, f"(UID BODY.PEEK[HEADER.FIELDS (FROM TO DATE SUBJECT MESSAGE-ID IN-REPLY-TO REFERENCES AUTHENTICATION-RESULTS RECEIVED-SPF DKIM-SIGNATURE AUTO-SUBMITTED RETURN-PATH CONTENT-TYPE)]<0.{HEADER_BYTES}>)")
     raw = literal(data, HEADER_BYTES)
     headers_truncated = len(raw) == HEADER_BYTES
     headers = BytesHeaderParser(policy=email.policy.default).parsebytes(raw)
@@ -218,7 +218,7 @@ def read_message(client, uid, validity):
         sender = ""
     body, truncated, preview_error, kind, part = "", False, None, "plain", None
     try:
-        tree = parse_structure(fetch(client, uid, "(UID BODYSTRUCTURE)")) if known else None
+        tree = parse_structure(fetch(client, uid, "(UID BODYSTRUCTURE)"))
         part = plain_part(tree) if tree else None
         kind = "plain"
         if tree and not part:
@@ -262,6 +262,9 @@ def read_message(client, uid, validity):
         "to": " ".join(str(v) for v in headers.get_all("To", []))[:2048],
         "key": f"{validity}:{uid}", "sender": sender,
         "trust_class": "known_from" if known else "unknown",
+        "auto_submitted": str(headers.get("Auto-Submitted", ""))[:256],
+        "return_path": str(headers.get("Return-Path", ""))[:1024],
+        "content_type": headers.get_content_type(),
         "authentication": {"verified": False, "basis": "unverified_header_evidence_only",
                            "authentication_results": [str(x)[:4096] for x in headers.get_all("Authentication-Results", [])],
                            "received_spf": [str(x)[:2048] for x in headers.get_all("Received-SPF", [])],
@@ -270,7 +273,7 @@ def read_message(client, uid, validity):
         "from": " | ".join(str(x) for x in fields)[:1024], "date": str(headers.get("Date", ""))[:256],
         "subject": str(headers.get("Subject", ""))[:1024], "body": body,
         "headers_truncated": headers_truncated, "preview_error": preview_error,
-        "body_truncated": truncated, "body_status": "error_pending_full_read" if preview_error else kind + "_preview" if part else "pending_full_read" if known else "unknown_sender_review",
+        "body_truncated": truncated, "body_status": "error_pending_full_read" if preview_error else kind + "_preview" if part else "pending_full_read",
     }
 
 

@@ -15,7 +15,7 @@ class SeenError(Exception):
 
 def proof_for(state, root, message, ledger):
     content.identity(message)
-    if message.get('sender') not in content.SENDERS:
+    if message.get('sender') not in content.SENDERS and not content.report_allowed(message, state):
         raise SeenError('unknown_sender_not_read')
     db = sqlite3.connect('file:' + str((state / 'mail.sqlite3').resolve()) + '?mode=ro', uri=True)
     try:

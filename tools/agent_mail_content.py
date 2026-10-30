@@ -149,7 +149,30 @@ def bounded_file(job, relative, data, root):
     return {'path': str((job / relative).resolve()), 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
 
 
-def materialize(raw_path, job, message, root):
+def report_allowed(message, state):
+    from agent_mail_external import report_allowed as admitted_report
+    return admitted_report(message, state)
+
+
+def screen_manifest(manifest, message):
+    from agent_mail_external import screen
+    budget, texts = 1024 * 1024, []
+    complete = manifest.get("state") == "available" and bool(manifest.get("parts")) and not manifest.get("warnings")
+    for part in manifest.get("parts", []):
+        if not part.get("text") or part.get("state") != "extracted" or part.get("warnings"):
+            complete = False
+            continue
+        with Path(part["text"]["path"]).open(encoding="utf-8") as stream:
+            value = stream.read(max(0, budget) + 1)
+        texts.append(value)
+        budget -= len(value)
+        if budget < 0:
+            complete = False
+            break
+    manifest["screening"] = screen(message, message.get("subject", "") + "\n" + "\n".join(texts), complete)
+
+
+def materialize(raw_path, job, message, root, report_only=False):
     """Decode MIME containers only. Documents/OCR remain owned by tech-docs."""
     mail = BytesParser(policy=email.policy.default).parsebytes(raw_path.read_bytes())
     fields = mail.get_all('From', [])
@@ -157,6 +180,10 @@ def materialize(raw_path, job, message, root):
     sender = addresses[0].addr_spec if len(addresses) == 1 else ''
     if sender != message.get('sender', '') or str(mail.get('Message-ID', ''))[:1024] != message.get('message_id', ''):
         raise ContentError('download_identity_mismatch')
+    if report_only:
+        for key, header in (('subject', 'Subject'), ('in_reply_to', 'In-Reply-To'), ('references', 'References')):
+            if len(mail.get_all(header, [])) > 1 or str(mail.get(header, '')) != message.get(key, ''):
+                raise ContentError('download_thread_mismatch')
     manifest = {'schema_version': 1, 'key': message['key'], 'source': source_for(message),
                 'state': 'available', 'analysis_status': 'not_read',
                 'original': {'path': str(raw_path.resolve()), 'sha256': sha(raw_path), 'bytes': raw_path.stat().st_size},
@@ -228,11 +255,13 @@ def materialize(raw_path, job, message, root):
     manifest['warnings'].extend(type(d).__name__ for d in mail.defects)
     if manifest['warnings'] and manifest['state'] == 'available':
         manifest['state'] = 'available_with_warnings'
+    if report_only:
+        screen_manifest(manifest, message)
     save_manifest(job, manifest)
     return manifest
 
 
-def acquire(client, message, root, include_unknown=False):
+def acquire(client, message, root, include_unknown=False, report_only=False):
     from agent_mail_snapshot import fetch, literal, response_number, check
     job = root / identity(message)
     job.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -240,8 +269,10 @@ def acquire(client, message, root, include_unknown=False):
     if current.get('original') and (job / 'original.eml').exists():
         if sha(job / 'original.eml') != current['original']['sha256']:
             raise ContentError('original_hash_mismatch')
+        if report_only and current.get('state') == 'awaiting_review':
+            return materialize(job / 'original.eml', job, message, root, report_only=True)
         return current
-    if message.get('sender') not in SENDERS and not include_unknown:
+    if message.get('sender') not in SENDERS and not include_unknown and not report_only:
         current = dict(current, source=source_for(message), state='awaiting_review', analysis_status='not_read')
         save_manifest(job, current)
         return current
@@ -275,14 +306,14 @@ def acquire(client, message, root, include_unknown=False):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(partial, target)
-    if message.get('sender') not in SENDERS:
+    if message.get('sender') not in SENDERS and not report_only:
         # Explicit read-only review may retain unknown originals, but never admit
         # them to trusted extraction/routing or execute attachment content.
         obj = dict(current, source=source_for(message), state='awaiting_review',
                    original={'path': str(target.resolve()), 'sha256': sha(target), 'bytes': size})
         save_manifest(job, obj)
         return obj
-    return materialize(target, job, message, root)
+    return materialize(target, job, message, root, report_only=report_only)
 
 
 def handoff(manifest, root, message):
@@ -305,9 +336,9 @@ def handoff(manifest, root, message):
             'instructions': 'Return clean machine layer with source refs and OCR warnings. Never claim vision from filename. No translation or business tasks.'}
 
 
-def accept_result(root, message, result):
+def accept_result(root, message, result, report_only=False):
     manifest = read_manifest(root, message)
-    if message.get('sender') not in SENDERS:
+    if message.get('sender') not in SENDERS and not report_only:
         raise ContentError('unknown_sender_review_only')
     if result.get('key') != message['key'] or result.get('source_sha256') != manifest.get('original', {}).get('sha256'):
         raise ContentError('extraction_source_mismatch')
@@ -335,6 +366,8 @@ def accept_result(root, message, result):
                 p.read_text(encoding='utf-8')
                 updates['text' if field == 'text_path' else field] = {'path': str(p), 'sha256': sha(p), 'bytes': p.stat().st_size}
         item.update(updates)
+    if report_only:
+        screen_manifest(manifest, message)
     save_manifest(root / identity(message), manifest)
     return manifest
 
@@ -358,7 +391,7 @@ def read_text(root, message, part_id, offset=0, chars=READ_CHARS):
 
 
 def compact(manifest):
-    return {"key": manifest["key"], "state": manifest["state"],
+    return {"screening": manifest.get("screening"), "key": manifest["key"], "state": manifest["state"],
             "analysis_status": manifest.get("analysis_status", "not_read"),
             "reason": manifest.get("reason"), "parts_total": len(manifest.get("parts", [])),
             "parts": [{k: p.get(k) for k in ("id", "mime", "role", "state", "reason", "warnings")}
@@ -459,23 +492,25 @@ def main(argv=None):
                 if args.command == 'accept':
                     if args.result.stat().st_size > 1024 * 1024:
                         raise ContentError('result_limit')
-                    out = accept_result(args.content_root, messages[0], json.loads(args.result.read_text()))
+                    out = accept_result(args.content_root, messages[0], json.loads(args.result.read_text()),
+                                        report_only=report_allowed(messages[0], args.state_dir))
                 else:
                     out = []
                     for message in messages:
                         if len(out) >= args.limit:
                             break
                         existing = read_manifest(args.content_root, message)
-                        if existing.get('original'):
+                        report_only = report_allowed(message, args.state_dir)
+                        if existing.get('original') and not (report_only and existing.get('state') == 'awaiting_review'):
                             out.append(existing)
                             continue
-                        if client is None and (message.get('sender') in SENDERS or args.include_unknown):
+                        if client is None and not existing.get('original') and (message.get('sender') in SENDERS or args.include_unknown or report_only):
                             from agent_mail_snapshot import load_profile, check
                             env = load_profile()
                             client = imaplib.IMAP4_SSL(env['AGENT_MAIL_HOST'], timeout=10, ssl_context=ssl.create_default_context())
                             check(client.login(ACCOUNT, env['AGENT_MAIL_PASS'])[0], 'login_failed')
                         try:
-                            out.append(acquire(client, message, args.content_root, args.include_unknown))
+                            out.append(acquire(client, message, args.content_root, args.include_unknown, report_only=report_only))
                         except Exception as exc:
                             from agent_mail_snapshot import SnapshotError
                             obj = {'schema_version': 1, 'key': message['key'], 'source': source_for(message),

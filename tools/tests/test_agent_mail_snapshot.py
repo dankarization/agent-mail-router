@@ -140,17 +140,17 @@ class SnapshotTests(unittest.TestCase):
                 client.messages[1]["sender"] = sender
                 result, _ = mail.snapshot(client)
                 self.assertEqual(result["messages"][0]["trust_class"], "unknown")
-                self.assertEqual(result["messages"][0]["body"], "")
+                self.assertEqual(result["messages"][0]["body"], "hello")
                 self.assertEqual(result["next_cursor"]["last_uid"], 1)
-                self.assertEqual(len([c for c in client.calls if c[0] == "FETCH"]), 1)
+                self.assertEqual(len([c for c in client.calls if c[0] == "FETCH"]), 3)
 
-    def test_duplicate_from_rejected_without_body_fetch(self):
+    def test_duplicate_from_keeps_untrusted_provenance_and_readonly_preview(self):
         client = FakeIMAP()
         client.messages[1]["headers"] = (
             f"From: {mail.SENDERS[0]}\r\nFrom: {mail.SENDERS[1]}\r\n\r\n").encode()
         result, _ = mail.snapshot(client)
         self.assertEqual(result["messages"][0]["trust_class"], "unknown")
-        self.assertEqual(len([c for c in client.calls if c[0] == "FETCH"]), 1)
+        self.assertEqual(len([c for c in client.calls if c[0] == "FETCH"]), 3)
 
     def test_body_metadata_and_stable_identity(self):
         result, _ = mail.snapshot(FakeIMAP())

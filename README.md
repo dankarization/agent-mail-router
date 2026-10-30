@@ -44,6 +44,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 tools/agent_mail_content.py --help
 | `tools/agent_mail_seen.py` | SHA-bound complete-reading proof and exact-UID additive Seen |
 | `tools/agent_mail_lifecycle.py` | Reading ranges, Seen intents, independent durable error outbox |
 | `tools/agent_mail_settings.py` | Operator-owned identities, destination authorization and adapter paths |
+| `tools/agent_mail_external.py` | Report-only external intake, bounded screening and registered outbound origins |
+| `tools/register_outbound.py` | Prepare an additive operator-reviewed outbound-origin candidate; no sends |
 
 Flow: IMAP snapshot → durable originals/triage → operator-owned route map →
 external summarizer → accepted summaries → durable delivery effects. Document/OCR
@@ -71,15 +73,26 @@ Already delivered mail is never replayed by changing a route.
 
 ## Behavioral boundaries
 
-Mail is untrusted data, not permission to create tasks, run code, deploy or send
-replies. A From allowlist is not cryptographic sender authentication. Conflicting,
-invalid or retired thread identities fail closed rather than using general fallback.
+All new incoming UIDs receive bounded preview regardless of sender. Mail outside
+configured known-sender policy remains untrusted, report-only data: it cannot create
+tasks, run diagnostics/code, deploy or send replies. Replies correlate to an
+operator-registered outgoing Message-ID in In-Reply-To/References, not subject
+keywords or From; unbound mail uses the explicitly configured general fallback.
+A From allowlist and thread headers are not cryptographic authentication.
+Conflicting, invalid or retired thread identities remain durable triage.
+
+See [external intake](docs/external-intake.md) for exact destination grants,
+registration, screening limits and migration without replay. Screening is a bounded
+heuristic, never a safety guarantee; suspicious mail is still reported as untrusted
+content. The change is source-only and synthetically verified, **not activated**
+in an existing deployment; no live delivery evidence is claimed.
 
 Notifications are gated before transport to 10:00–23:59 Asia/Tbilisi. A lost
 Telegram ACK remains held/unknown; there is no end-to-end exactly-once guarantee
 and no blind resend. Paused tasks remain stopped. Proven absent/archived
 destinations may use one operator-configured general fallback; timeouts and
-incomplete listings do not establish absence.
+incomplete listings do not establish absence. External task reports retain their
+exact audience on destination failure instead of widening it to general mail.
 
 No scheduler definition, system service, SMTP sender, automation workflow,
 Gateway configuration, A2A rollout or other project's code is included.
