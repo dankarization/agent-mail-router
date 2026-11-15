@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import sys
 import time
 
 import agent_mail_content as content
@@ -384,7 +385,9 @@ def service(state, gateway, telegram, clock, allowed, policy_path=None):
         return {"status": "empty"}
     p = policy_at(policy_path)  # A disabled policy also stops unsent work.
     w = State(state, recover=True)
+    checkpoint = getattr(gateway, "checkpoint", lambda _phase: None)
     try:
+        checkpoint("work_recovery")
         with w.db:
             for held in w.db.execute("SELECT task_id FROM work_outbox WHERE kind='owner' AND status='unknown'").fetchall():
                 w.db.execute("INSERT OR IGNORE INTO work_outbox VALUES (?,?,?,?,?,?,NULL)",
@@ -428,11 +431,13 @@ def service(state, gateway, telegram, clock, allowed, policy_path=None):
                               encoded({"detail": "Работа не начата: work_thread_target_forbidden. Требуется сверить маршрут существующей задачи."}), "pending"))
                 return {"status": "rejected", "kind": "owner", "task_id": row["task_id"],
                         "receipt": None, "error": "work_thread_target_forbidden"}
+        checkpoint("work_validation")
         # Validation cannot send and therefore precedes the durable intent.
         if row["kind"] == "owner":
             try:
                 gateway.validate({"parent": row["owner"]}, row["owner"])
             except Exception as exc:
+                checkpoint("work_validation_error")
                 known = {"route_session_unavailable", "route_parent_mismatch", "route_validation_incomplete", "delivery_budget_exhausted"}
                 failure = str(exc) if str(exc) in known else "route_validation_failed"
                 definite = failure in {"route_session_unavailable", "route_parent_mismatch"}
@@ -449,12 +454,14 @@ def service(state, gateway, telegram, clock, allowed, policy_path=None):
         deadline = getattr(gateway, "deadline", None)
         if isinstance(deadline, (int, float)) and deadline - time.monotonic() < 1:
             return {"status": "deferred", "kind": row["kind"]}
+        checkpoint("work_intent")
         with w.db:
             claimed = w.db.execute("UPDATE work_outbox SET status=? WHERE id=? AND status=?", ("inflight", row["id"], "pending")).rowcount
         if not claimed:
             return {"status": "deferred", "kind": row["kind"]}
         status, receipt, failure = "unknown", None, None
         try:
+            checkpoint("work_effect")
             if row["kind"] == "owner":
                 result = gateway.call("sessions.send", {"key": row["owner"], "agentId": "main",
                     "message": OWNER_INSTRUCTIONS.replace("agent_mail_work.py", str(Path(__file__).resolve()))
@@ -480,6 +487,7 @@ def service(state, gateway, telegram, clock, allowed, policy_path=None):
         except Exception as exc:
             known = {"route_session_unavailable", "route_validation_incomplete", "route_parent_mismatch", "delivery_budget_exhausted"}
             failure = str(exc) if str(exc) in known else ("owner_ack_unknown" if row["kind"] == "owner" else "notify_ack_unknown")
+        checkpoint("work_receipt")
         with w.db:
             if failure:
                 w.db.execute("INSERT OR IGNORE INTO work_events VALUES (?,?,?)",
@@ -497,7 +505,9 @@ def service(state, gateway, telegram, clock, allowed, policy_path=None):
                          encoded({"detail": "Работа не подтверждена: " + (failure or "owner_ack_missing") + ". Запрос сохранён; MAIN должен сверить эту задачу, автоповтора нет."}), "pending"))
         return {"status": status, "kind": row["kind"], "task_id": row["task_id"], "receipt": receipt, "error": failure}
     finally:
-        w.close()
+        if not getattr(sys.exc_info()[1], "terminal_mail_tick_deadline", False):
+            checkpoint("work_finalizing")
+            w.close()
 
 
 def main(argv=None):
