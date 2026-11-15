@@ -44,8 +44,7 @@ classification or routes to bypass a conflict. Prose-only contradictions cannot 
 reliably detected here; the winning result remains authoritative and the ignored
 candidate is explicitly reported instead of silently replacing it.
 
-Concurrent complete CLIs wait for the existing runtime lock within the 27-second
-command deadline; other commands retain their nonblocking lock policy. Independent
+Concurrent complete CLIs wait for the existing runtime lock within the bounded command deadline; other commands retain their nonblocking lock policy. Independent
 Store connections serialize the first-result check and commit. Database contention
 beyond the storage timeout/deadline is still a real operational error.
 
@@ -59,6 +58,17 @@ Invalid completion text returns `summary_text_invalid` with a bounded `validatio
 object: topic index, field, actual length, minimum/maximum and a fixed reason.
 Malformed JSON returns `summary_json_invalid` with line/column/position and a
 serializer/escaping hint; invalid base64/UTF-8 returns `summary_encoding_invalid`.
+A literal control character is reported as `invalid_control_character`; JSON remains
+strict (no sanitization or permissive parse). For an existing pending batch only,
+JSON/encoding rejection returns `retryable=true`, `batch_retained=true` and
+`next_action=correct_result_only` without creating an operational error alert.
+Correct the input using a JSON serializer, then retry the same batch. An abandoned
+batch remains visible as `summary_pending` to the watchdog. Missing/completed batch
+validation, completion conflicts, storage failures and delivery errors retain the
+operational error path. Existing sent alerts and receipts are never rewritten.
+Generate JSON with `json.dumps` and pass it as an argv element to the helper using
+`subprocess.run([...], check=True)`; do not hand-assemble JSON inside shell quotes.
+
 No candidate text, decoder excerpt or exception payload is echoed or journaled.
 These remain errors (exit 1), including after an earlier successful completion.
 
@@ -68,8 +78,37 @@ reported in `dispatch`, with top-level `status=degraded` (exit 0). The admitted
 `fire`, `batch` and authoritative `state.cursor` are still returned; callers must
 process them even when delivery is degraded. This is not a successful-delivery
 claim. Polling, storage, deadline and unexpected runtime failures remain errors.
-Gateway calls allow 7 seconds plus CLI overhead (10-second process cap); tick
-admits a two-RPC step only while its 20-second worst-case fits the command deadline. `dispatch` services one routing effect without IMAP or Seen.
+Gateway calls retain a 7-second RPC ceiling and 10-second process ceiling.
+The scheduled headless trigger gives one tick a hard 30-second wall clock
+(`HEADLESS_TRIGGER_WALL_CLOCK_MS`). The helper therefore bounds itself strictly
+inside that window: an 18-second in-process alarm, a 15-second snapshot poll,
+delivery shared until second 15 and disposal/error dispatch until second 13,
+leaving margin for process spawn, result projection, Code Mode resume/teardown
+and status publication (~9 seconds observed after the child exits).
+The scheduler-side trigger exec keeps a `timeoutSeconds=19` backstop just above
+the alarm, so the helper normally has time to return its durable fail-closed JSON before the
+exec backstop. Host stalls can still prevent timely settlement. With the former
+27-second alarm and 28-second exec timeout, a slow evaluation was observed to
+hit the wall clock and be cancelled mid-flight (`failurePhase=bridge`,
+`failureCode=tool_error`); that observation does not establish historical batch
+or cursor loss. The ordering (alarm < exec timeout < wall clock,
+with at least ~9 seconds of post-child overhead reserved) is pinned by
+`test_agent_mail_delivery_progress.TriggerBudgetInvariantTests`. All five bounds
+are overridable for a task-scoped re-tune via `MAIL_ROUTER_TICK_ALARM_SECONDS`,
+`MAIL_ROUTER_POLL_TIMEOUT_SECONDS`, `MAIL_ROUTER_TICK_DELIVERY_SECONDS`,
+`MAIL_ROUTER_TICK_DISPOSE_SECONDS` and `MAIL_ROUTER_TICK_SEEN_SECONDS`; the
+alarm must stay below the exec timeout, which must stay below the trigger wall
+clock.
+Validation
+gets at most half the remaining budget so the delivery call has time left;
+process/RPC timeouts are shortened accordingly. Budget exhaustion before intent
+leaves pending, not unknown; uncertain post-intent results remain held. Telegram
+still requires its existing three-second transport budget before intent. At most
+ten routing steps run per tick. A slow successful poll or first context no longer
+silently excludes all delivery just because elapsed time exceeds six seconds.
+FIFO summary order prevents new contexts from starving an older notify, while
+contexts within each summary remain first. Bounded time/call counts are not a
+liveness guarantee under persistent poll/transport failures or saturated backlog. `dispatch` services one routing effect without IMAP or Seen.
 `errors-dispatch` services only the independent mail error outbox.
 
 ## Read-only state inspection
@@ -165,3 +204,58 @@ Rollback code independently of state: retain ingress DB, lifecycle ledger, spool
 cursor, anchors and delivery receipts. Never overwrite a live ledger with an old
 snapshot or remove receipts to replay mail. Reverting Seen requires a separate
 exact-UID operator decision. No deployment rollback is performed by this repo.
+
+## Code Mode exec-result adapter
+
+`scripts/mail-trigger-result.js` is the result-validation fragment inserted after
+an existing trigger's `exec` call and before its `let event` JSON validation.
+It does not replace the command, trigger state, summarizer instructions, or models.
+Code Mode projects exec `details` directly: a completed command still requires
+an integer `exitCode` of zero. A textual JSON event without exit evidence is not
+success. Nonzero exit, explicit process failure, running, missing exit evidence,
+and overall/no-output timeout are distinct fail-closed outcomes. A timeout does
+not prove that ingress/outbox effects did not happen; reconcile durable state
+before any repeat. Do not reset cursor, unknown effects or delivery receipts.
+
+Run `node scripts/test-mail-trigger-result.mjs` for adapter regression coverage.
+Prepare a trigger-only scheduler patch with the original script hash and preserve
+its entire instruction suffix byte-for-byte; only the scheduler owner applies it.
+A direct shell tick is not a Code Mode execution proof, and an isolated headless
+Code Mode proof does not establish scheduled admission or cron deadline success.
+
+For observation without paid analysis, use the deployed watchdog `check` command,
+not `check-analyze`. Resolve `--scheduler-db` and `--store-key` from the actual
+cron row; the latter is a stored identity and need not name an existing JSON file.
+Prove deployed sibling imports and run `check` against scratch mail/lifecycle
+copies before preparing activation. Keep live repair/analysis admission unchanged.
+
+## Bounded completion and dispatch
+
+`complete` uses a 12-second internal alarm. A committed batch is authoritative even
+if independent Seen admission fails. After an interrupted or nonzero completion,
+query `batch-status --batch BATCH_ID`: `completed` includes the accepted result
+digest and is terminal; `pending` permits a controlled retry of the same result.
+The status query opens SQLite read-only and does not recover or send effects.
+Never infer delivery from completion or retry an unknown delivery.
+
+Watchdog repair passes a monotonic absolute deadline inside its process timeout;
+dispatch reserves time to persist and return. A read-only validation timeout or
+insufficient pre-intent budget defers without sending. After durable send intent,
+an ambiguous outcome remains unknown until positive reconciliation. These limits
+do not fix independent Gateway storage or scheduler delays.
+
+## Source and deployment mapping
+
+This tree combines the portable external report-only intake with optional work,
+watchdog and repair source. The portable `tools/agent_mail_*.py` names and
+`agent_mail_settings.py` configuration are not byte-identical to an installation
+using `syncopia_agent_mail_*.py` and deployment-specific imports or settings.
+Review the complete installed/portable diff and an explicit module mapping before
+any deployment; do not copy example policy or overwrite state. No runtime policy,
+route, ledger, cursor or receipt is included in the source manifest.
+
+A summarizer integration must constrain its runner to prepare, read, intake,
+complete and batch-status operations. After an uncertain completion it queries
+the same batch ID and stops on a committed result; it does not launch free-form
+workspace diagnostics or infer delivery. This repository supplies the status
+operation but does not change or enforce an existing scheduler's instructions.

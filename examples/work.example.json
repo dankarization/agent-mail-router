@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "enabled": true,
+  "account": "router@example.invalid",
+  "conditional_senders": [
+    "source-a@example.invalid",
+    "source-a-new@example.invalid"
+  ],
+  "uidvalidity": "77",
+  "after_uid": 98,
+  "excluded_keys": [
+    "77:98"
+  ],
+  "authorization_ref": "operator-example-authorization",
+  "policy_source": "memory/grok-mail-execution-authorization.md",
+  "trust_basis": "operator_conditional_alias_not_authentication",
+  "blocked_notification": {
+    "parent": "agent:main:telegram:direct:900000001:thread:900000001:9001",
+    "chat_id": "900000001",
+    "thread_id": "9001"
+  },
+  "extra_targets": [],
+  "synthesis_owner": "main"
+}

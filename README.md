@@ -71,6 +71,22 @@ This extraction does not update any existing deployment. Group authorization is
 explicit and exact; the source contains no blanket permission for arbitrary groups.
 Already delivered mail is never replayed by changing a route.
 
+## Optional mail-only watchdog
+
+[Incident watchdog](docs/watchdog.md) adds deterministic metadata observations,
+durable admission and existing quiet-hours error delivery. Paid incident analysis is explicitly activated, one per incident and at most
+two conservative admissions/day, with a fixed High model and no retries/fallbacks.
+There is no exact total-token cap. Activation is operator-owned; cloning/testing
+creates no schedule.
+
+## Optional read-only availability checks
+
+[Mail-triggered checks](docs/readonly-checks.md) uses one fixed lightweight,
+tool-free selection and an operator-owned fixed TCP checker. Separate durable
+state, strict candidate validation and bounded time prevent mail from granting
+execution authority. Ordinary reporting, ACK/delivery receipts and quiet hours
+remain independent; no automatic activation occurs on cloning.
+
 ## Behavioral boundaries
 
 All new incoming UIDs receive bounded preview regardless of sender. Mail outside
@@ -86,6 +102,10 @@ registration, screening limits and migration without replay. Screening is a boun
 heuristic, never a safety guarantee; suspicious mail is still reported as untrusted
 content. The change is source-only and synthetically verified, **not activated**
 in an existing deployment; no live delivery evidence is claimed.
+
+An optional [operator-authorized work intake](docs/authorized-work.md) may admit
+future detailed requests under an explicit local standing grant. It does not
+apply to external report-only mail and is not activated by cloning or headers.
 
 Notifications are gated before transport to 10:00–23:59 Asia/Tbilisi. A lost
 Telegram ACK remains held/unknown; there is no end-to-end exactly-once guarantee
