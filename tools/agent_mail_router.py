@@ -921,7 +921,9 @@ def main(argv=None):
             if not stat.S_ISREG(stage_stat.st_mode) or stage_stat.st_uid != os.getuid():
                 os.close(_tick_stage_fd)
                 _tick_stage_fd = None
-        except OSError:
+        except Exception:
+            # Optional diagnostics must not stop mail processing under an audit
+            # policy. TickDeadline inherits BaseException and still propagates.
             _tick_stage_fd = None
     expired = False
     store = None

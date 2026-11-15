@@ -19,6 +19,19 @@ class DeadlineTests(unittest.TestCase):
         signal.setitimer(signal.ITIMER_REAL, 0)
         m._tick_deadline, m._tick_started = self.old_deadline, self.old_started
         self.f.tearDown()
+    def test_optional_stage_audit_denial_does_not_abort_tick_or_leak_deadline(self):
+        original_open = m.os.open
+        def deny_stage(path, *args, **kwargs):
+            if str(path).startswith('/dev/shm/openclaw-mail-stage-'):
+                raise AssertionError('synthetic audit denial')
+            return original_open(path, *args, **kwargs)
+        out = io.StringIO()
+        with patch.object(m.os, 'open', side_effect=deny_stage), patch.object(m, 'routes_at', return_value=self.f.routes), patch.object(m, 'poll', return_value=fixtures.snap([], last=0)), redirect_stdout(out):
+            code = m.main(['--state-dir', self.f.tmp.name, 'tick'])
+        self.assertEqual(code, 0)
+        self.assertIsNone(m._tick_deadline)
+        self.assertIsNone(m._tick_stage_fd)
+        self.assertIsInstance(json.loads(out.getvalue()), dict)
     def test_poll_signal_remains_terminal(self):
         old = signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(m.TickDeadline()))
         try:

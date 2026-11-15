@@ -120,8 +120,8 @@
     },
     {
       "path": "tools/agent_mail_router.py",
-      "bytes": 64384,
-      "sha256": "bd6295d549bf3ea30ee263d2e9b95601af67938b6ed0988e06d7cec730e60625"
+      "bytes": 69348,
+      "sha256": "fc0eaa6104f4478b1ff99c985a45aec540fe72fea61a5ba564f5213737480f5a"
     },
     {
       "path": "tools/agent_mail_seen.py",
@@ -145,8 +145,8 @@
     },
     {
       "path": "tools/agent_mail_work.py",
-      "bytes": 35378,
-      "sha256": "9c6af8263c187298b4b7152bf7327a46fac6558afecbc063715a897425f045d8"
+      "bytes": 35818,
+      "sha256": "6c7e99d72128cec33a6e6c9c6a1bbefc3d474d9d87d57470348380196550fccd"
     },
     {
       "path": "tools/register_outbound.py",
@@ -170,8 +170,8 @@
     },
     {
       "path": "tools/tests/test_agent_mail_delivery_progress.py",
-      "bytes": 18099,
-      "sha256": "ff1c9ac5d209457ebc729f9b13c3e075b9e9c5509baa7e7075c7022831e9d13b"
+      "bytes": 18105,
+      "sha256": "44dfe98218ca15206911cb3ed7e0f46e811c7a2167bf9ce93baabb18cec506d8"
     },
     {
       "path": "tools/tests/test_agent_mail_external.py",
@@ -212,6 +212,11 @@
       "path": "tools/tests/test_agent_mail_snapshot.py",
       "bytes": 12751,
       "sha256": "3a7f19e452ccd82b006f79f3b1f7868eb1f2b58991dafb220f0cd089836f0547"
+    },
+    {
+      "path": "tools/tests/test_agent_mail_trigger_deadline.py",
+      "bytes": 10421,
+      "sha256": "dd51e96a6feeee319fbb13056a6689cd191bc2e7e97c671c2af5688f32911dc7"
     },
     {
       "path": "tools/tests/test_agent_mail_watchdog.py",
