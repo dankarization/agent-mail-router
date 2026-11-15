@@ -341,7 +341,8 @@ def _require_native_sigchld_default():
         raise _Unsupported() from None
 
 
-def _exchange(argv, cwd, env, payload, end, *, _bounds=None):
+def _exchange(argv, cwd, env, payload, end, *, _bounds=None,
+              _validate_output=_valid_output_shape, _max_stdout=_MAX_STDOUT):
     """Cooperate with the owned leader, then force only its group at the reserve."""
     if (sys.platform != 'linux' or not all(hasattr(os, name) for name in
             ('waitid', 'P_PID', 'WEXITED', 'WNOHANG', 'WNOWAIT'))):
@@ -353,6 +354,8 @@ def _exchange(argv, cwd, env, payload, end, *, _bounds=None):
         _proc_identity(os.getpid())
     except (OSError, ValueError, IndexError):
         raise _Unsupported() from None
+    if not callable(_validate_output) or type(_max_stdout) is not int or not 1 <= _max_stdout <= 8*1024*1024:
+        raise _Unsupported()
     work_at, term_at, force_at = _bounds or _schedule(end, time.monotonic())
     process = subprocess.Popen(argv, cwd=str(cwd), env=env, stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -377,7 +380,7 @@ def _exchange(argv, cwd, env, payload, end, *, _bounds=None):
                             except BlockingIOError: raise _CleanupFailed() from None
                             if not block: break
                             output.extend(block)
-                            if len(output) > _MAX_STDOUT: failure = _OutputInvalid()
+                            if len(output) > _max_stdout: failure = _OutputInvalid()
                     process.wait(timeout=max(0.001, end - time.monotonic())); reaped = True
                     if now >= force_at or time.monotonic() >= end:
                         raise _CleanupFailed()
@@ -410,9 +413,9 @@ def _exchange(argv, cwd, env, payload, end, *, _bounds=None):
                         block = os.read(process.stdout.fileno(), 4096)
                         if not block:
                             selector.unregister(process.stdout); process.stdout.close()
-                            if not _valid_output_shape(bytes(output)) and failure is None:
+                            if not _validate_output(bytes(output)) and failure is None:
                                 failure = _OutputInvalid()
-                        elif len(output) + len(block) > _MAX_STDOUT:
+                        elif len(output) + len(block) > _max_stdout:
                             if failure is None: failure = _OutputInvalid()
                         else:
                             output.extend(block)

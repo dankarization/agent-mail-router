@@ -15,8 +15,8 @@
     },
     {
       "path": "adapters/gateway-private-stdio.mjs",
-      "bytes": 1576,
-      "sha256": "8bfdb24009124b71b018568e25a53713546ab69a0654ae3299975fc9f02e49d2"
+      "bytes": 970,
+      "sha256": "7ab26ca2ddd1292ecb3fb7fa49d489c9c0655d75beab060b68e291fbe333589e"
     },
     {
       "path": "adapters/openclaw-compiled-utility-r3.mts",
@@ -85,8 +85,8 @@
     },
     {
       "path": "docs/semantic-routing.md",
-      "bytes": 3828,
-      "sha256": "35f365aea9182636c444752dcf2ea56b3062e0319f5046fbc13c978eea4a89f8"
+      "bytes": 3954,
+      "sha256": "3bce5123a4a087ea0a76a8f2d93ffaf9bc826a4b4796e6d54160892b9c7bc50e"
     },
     {
       "path": "docs/watchdog.md",
@@ -110,8 +110,8 @@
     },
     {
       "path": "examples/semantic-systemd/agent-mail-semantic.service.example",
-      "bytes": 642,
-      "sha256": "9d1ff498d507700cafcabd35fa2cf511aa3337485e91afa3e04b2a9453f76f05"
+      "bytes": 643,
+      "sha256": "b27d22bdfc7af9d3c6ef9b92c33b24bdad3519e8bb6758c139db3f9d4ab2fade"
     },
     {
       "path": "examples/semantic-systemd/agent-mail-semantic.timer.example",
@@ -170,8 +170,8 @@
     },
     {
       "path": "tools/agent_mail_gateway_stdio.py",
-      "bytes": 1899,
-      "sha256": "507ccef56710625803e743c4e0e4ce613b2f24d7fbd31087e2a37159fe0028a6"
+      "bytes": 1894,
+      "sha256": "d6c85399b97e39514f26850d65a25b6be692ffbc2b9f9d3f2991408f6c42da74"
     },
     {
       "path": "tools/agent_mail_inbound.py",
@@ -210,8 +210,8 @@
     },
     {
       "path": "tools/agent_mail_routing_host.py",
-      "bytes": 24057,
-      "sha256": "33b53bff853a25a7f7199de5a4b805b211689e65870edf42e92ced9a75615d15"
+      "bytes": 24270,
+      "sha256": "66ae02e4cfb4a1a4cc69df4a4b7fc11dfca99d3f5abb0994341c61b3445c801c"
     },
     {
       "path": "tools/agent_mail_routing_integration.py",
@@ -295,8 +295,8 @@
     },
     {
       "path": "tools/tests/test_agent_mail_gateway_stdio.py",
-      "bytes": 4710,
-      "sha256": "4abbd429bc138067bf66bd5424bb872559d5686ecf58e1d13918990480c11b81"
+      "bytes": 4616,
+      "sha256": "5f25352fca4839075eac0d886c3182ccadc7dd16ea9c37db51d40e5e7d9a149c"
     },
     {
       "path": "tools/tests/test_agent_mail_inbound.py",

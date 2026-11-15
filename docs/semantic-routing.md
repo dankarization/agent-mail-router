@@ -39,8 +39,9 @@ is written before the RPC and prevents automatic replay after an unknown result.
 The worker invokes a pinned compiled isolated utility adapter and the existing
 utility-model configuration. The R3 adapter currently admits only the Codex
 isolated harness; other runtimes are held rather than silently changing models.
-The Gateway transport uses the existing authenticated SDK; its request is passed
-on stdin, not as a process argument. Pinned paths and hashes, including the
+The Gateway transport uses the ordinary authenticated CLI bootstrap; its request
+is passed on stdin, not in the operating-system process arguments. An in-memory
+argument array is used by the standard CLI parser; no role or scope is overridden. Pinned paths and hashes, including the
 helper hash, are operator-owned configuration and must be regenerated and
 reviewed for each new immutable Gateway build. No credentials belong in those
 files or command arguments. The scope and host configuration files must be
