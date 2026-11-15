@@ -1,0 +1,11 @@
+# Example only. Replace all placeholders after review; do not install on R2.
+[Unit]
+Description=Process at most one queued agent mail context
+After=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 /ABSOLUTE/REVIEWED/agent_mail_semantic_worker.py --state-dir /ABSOLUTE/MAIL/STATE --routes /ABSOLUTE/MAIL/STATE/routes.json --scope /ABSOLUTE/PRIVATE/SCOPE.json --host-config /ABSOLUTE/PRIVATE/HOST.json --gateway-helper /ABSOLUTE/REVIEWED/gateway-private-stdio.mjs --gateway-helper-sha256 SHA256_OF_REVIEWED_HELPER
+# 100s content + 120s model + 3 RPCs (30s call + two 15s checks) + margin.
+TimeoutStartSec=420

@@ -1,0 +1,58 @@
+# Semantic routing of mail context
+
+This optional feature copies the context of a newly received fallback email to
+one eligible existing session. It does not send email, wake an agent, execute
+instructions in a message, or assign new permissions. Exact reply, thread and
+task routing keeps precedence. The existing general-mail report is unchanged.
+
+A tick started with `--semantic-enqueue` records each eligible new message in
+the existing SQLite `meta` table in the same transaction as the mail row and
+cursor. There is no historical scan or database schema migration. The separate
+`agent_mail_semantic_worker.py` command claims at most one entry per invocation;
+a model call is not performed while the short tick holds its runtime lock. A
+separate worker lock excludes overlapping workers. Unknown model or delivery
+outcomes remain held, never blindly replayed. A crash can leave an entry in
+`processing`; investigate it as unknown before any manual action.
+
+The worker prepares an explicit mail key through the existing content helper,
+using existing report-only policy. It verifies the original and extracted text
+hashes and reads a complete, single preferred plain-text body (or HTML text if
+plain text is absent). Missing, ambiguous, changed or oversized bodies are held.
+Messages, headers, filenames and sender addresses do not grant work authority.
+
+An operator-owned private scope limits the catalog to an explicit owner profile,
+account, allowed agents and direct user. Group destinations require exact
+operator grants. Archived, paused, child, background, cron and foreign sessions
+are excluded. The model sees bounded untrusted mail text and at most 32 eligible
+metadata descriptions with opaque IDs. Its JSON response must select one of
+those IDs with high confidence and provide verbatim evidence; ambiguity,
+incomplete data and unknown IDs are held. Catalog, policy and source are
+rechecked before delivery.
+
+Delivery uses the public `chat.inject` RPC with the observed physical
+`sessionId`. A Gateway implementing this guard must validate it atomically
+with the append. Older Gateways that reject the parameter are not compatible;
+do not retry without it. Context injection is not an agent turn. Existing work
+intake is separate and remains governed by its own policy. The receipt journal
+is written before the RPC and prevents automatic replay after an unknown result.
+
+The worker invokes a pinned compiled isolated utility adapter and the existing
+utility-model configuration. The R3 adapter currently admits only the Codex
+isolated harness; other runtimes are held rather than silently changing models.
+The Gateway transport uses the existing authenticated SDK; its request is passed
+on stdin, not as a process argument. Pinned paths and hashes, including the
+helper hash, are operator-owned configuration and must be regenerated and
+reviewed for each new immutable Gateway build. No credentials belong in those
+files or command arguments. The scope and host configuration files must be
+owned by the service user and have mode 0600.
+
+The service and timer under `examples/semantic-systemd` are inactive templates,
+not installation instructions. Enable only after independent review, strict
+checks, verification of the current Gateway guard, a bounded synthetic utility
+check, and a controlled end-to-end test. Do not copy or reset live mail data or
+cursor. `agent_mail_semantic_worker.py --state-dir PATH --status` reads bounded,
+secret-free counts of queued, processing, complete, held and invalid entries,
+plus fixed held-reason codes and an observation of the worker lock. A processing
+entry without an active lock is reported as interrupted; lock observations can
+race with a worker starting or stopping. Status never calls a model or Gateway. Counts are
+limited to 10,000 entries and report truncation.

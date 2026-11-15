@@ -1,0 +1,26 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { classify } from '../openclaw-source-utility.mts';
+const v=()=>({version:1,host:{buildRoot:'/pinned',expectedCommit:'a'.repeat(40),manifestPath:'/pinned/operator-artifact-manifest.json',manifestSha256:'b'.repeat(64),configPath:'/tmp/qa-config',configSha256:'c'.repeat(64),policyPath:'/tmp/qa-policy',policySha256:'d'.repeat(64),agentId:'main',wallTimeoutMs:30000},payload:{body:'x',bodyComplete:true,catalogComplete:true,candidates:[{candidateId:'c_'+'e'.repeat(32),agentId:'main',title:'topic',purpose:'test',aliases:[]}]}});
+process.env.OPENCLAW_CONFIG_PATH='/tmp/qa-config';
+function fixture(run:(p:any, cb:any)=>Promise<any>) {
+ const events:string[]=[];
+ class Scope { constructor(_f:any){} track(fn:any){return fn();} beginClose(){events.push('abort');} async drain(){events.push('drain');} static async runWhenAllIdle(_s:any,fn:any){await fn();} }
+ const m:any={scope:{AsyncWorkScope:Scope},config:{captureRuntimeConfigAsyncReader:()=>async()=>({})},utility:{prepareUtilityCompletionForAgent:async()=>({useUtilityModel:true}),runUtilityCompletion:run},agent:{resolveAgentWorkspaceDir:()=>'/qa'},route:{resolveIsolatedCompletionProvider:()=>({provider:'qa'}),resolveIsolatedCompletionRoute:async()=>({selection:{selectedHarnessId:'codex'}})},isolated:{runIsolatedCompletion:async()=>({text:'{}'})},lifecycle:{closePreparedModelRuntimeSnapshots:async()=>{events.push('snapshots');}},cleanup:{closeCliResources:async()=>{events.push('cli');},waitForPendingCliDisposers:async()=>{events.push('disposers');}}};
+ return {events,deps:{capture:()=>({assertCurrent:()=>{}}),load:async()=>m}};
+}
+test('expired shared deadline rejects before source or inference',async()=>{let touched=false;const r=await classify(v(),{now:()=>100,workDeadline:100,capture:(()=>{touched=true;}) as any});assert.equal(r.errorCode,'classifier_timeout');assert.equal(touched,false);});
+test('missing absolute deadline fails closed',async()=>{const saved=process.env.OPENCLAW_MAIL_WORK_DEADLINE_MONOTONIC_MS;delete process.env.OPENCLAW_MAIL_WORK_DEADLINE_MONOTONIC_MS;try {const r=await classify(v());assert.equal(r.errorCode,'classifier_runtime_unsupported');}finally{if(saved!==undefined)process.env.OPENCLAW_MAIL_WORK_DEADLINE_MONOTONIC_MS=saved;}});
+test('absolute cutoff aborts execution, blocks fallback, and drains before result',async()=>{let release:any;const f=fixture(async(p,cb)=>{await new Promise<void>(r=>{release=r;p.abortSignal.addEventListener('abort',()=>r(),{once:true});}); await assert.rejects(()=>cb({}));return {text:'{}'};});const r=await classify(v(),{...f.deps,workDeadline:Number(process.hrtime.bigint()/1000000n)+40} as any);assert.equal(typeof release,'function');assert.equal(r.errorCode,'classifier_timeout');assert.deepEqual(f.events,['abort','abort','drain','snapshots','cli','disposers']);});
+test('SIGTERM cooperatively aborts and waits for cleanup',async()=>{const f=fixture(async(p)=>{process.emit('SIGTERM');assert.equal(p.abortSignal.aborted,true);return {text:'{}'};});const r=await classify(v(),{...f.deps,workDeadline:Number(process.hrtime.bigint()/1000000n)+1000} as any);assert.equal(r.errorCode,'classifier_timeout');assert.deepEqual(f.events,['abort','abort','drain','snapshots','cli','disposers']);});
+test('actual SIGTERM to own Node process drains before exit',async()=>{
+ const {spawn}=await import('node:child_process'); const {fileURLToPath}=await import('node:url');
+ const child=spawn(process.execPath,['--experimental-transform-types',fileURLToPath(new URL('./cooperative-child.fixture.mts',import.meta.url))],{stdio:['ignore','pipe','pipe']});
+ let output=''; let sent=false; child.stdout.setEncoding('utf8'); child.stdout.on('data',(s:string)=>{output+=s;if(!sent&&output.includes('ready\n')){sent=true;child.kill('SIGTERM');}});
+ const [code,signal]=await new Promise<[number|null,NodeJS.Signals|null]>((resolve,reject)=>{child.on('error',reject);child.on('exit',(c,s)=>resolve([c,s]));});
+ assert.equal(sent,true);assert.equal(code,0);assert.equal(signal,null);const answer=JSON.parse(output.trim().split('\n').at(-1)!);assert.equal(answer.cleaned,true);assert.equal(answer.result.errorCode,'classifier_timeout');
+});
+
+test('malformed and implausible environment deadlines reject before inference',async()=>{const saved=process.env.OPENCLAW_MAIL_WORK_DEADLINE_MONOTONIC_MS;try{for(const bad of ['', '-1', 'NaN', 'Infinity', '1e9', '1.5', '999999999999999', '9999999999999999','1180001']){process.env.OPENCLAW_MAIL_WORK_DEADLINE_MONOTONIC_MS=bad;let touched=false;const r=await classify(v(),{now:()=>1000000,capture:(()=>{touched=true;}) as any});assert.equal(r.errorCode,'classifier_runtime_unsupported',bad);assert.equal(touched,false,bad);}}finally{if(saved===undefined)delete process.env.OPENCLAW_MAIL_WORK_DEADLINE_MONOTONIC_MS;else process.env.OPENCLAW_MAIL_WORK_DEADLINE_MONOTONIC_MS=saved;}});
+
+test('boundary at 180000 ms passes deadline validation',async()=>{let touched=false;const r=await classify(v(),{now:()=>1000000,workDeadline:1180000,capture:(()=>{touched=true;throw Error('fixture');}) as any});assert.equal(touched,true);assert.equal(r.errorCode,'classifier_unavailable');});

@@ -408,6 +408,16 @@ class Store:
     def put(self, key, value):
         self.db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, canonical(value)))
 
+    def semantic_preflight(self, mail_key):
+        """Inspect a persisted candidate; never admits a model call or effect."""
+        from agent_mail_inbound import preflight
+        return preflight(self, mail_key)
+
+    def semantic_fallback_observation(self, gateway):
+        """Read fallback metadata only; this is never delivery authority."""
+        from agent_mail_inbound import observe_fallback
+        return observe_fallback(gateway, self.routes)
+
     def bootstrap(self, trigger):
         with self.db:
             if self.get("cursor") is None:
@@ -473,7 +483,7 @@ class Store:
         fallback = next((rid for rid, r in self.routes.items() if r.get("fallback")), None)
         return (fallback, "general_fallback") if fallback else (None, "unmapped")
 
-    def ingest(self, snap):
+    def ingest(self, snap, *, semantic_enqueue=False):
         cursor = self.get("cursor")
         if (snap.get("status") != "ok" or not snap.get("next_cursor")
                 or snap.get("uidvalidity") != cursor["uidvalidity"]):
@@ -483,6 +493,8 @@ class Store:
                 or nxt["last_uid"] < cursor["last_uid"]):
             raise MailError("snapshot_cursor_invalid")
         with self.db:
+            if semantic_enqueue:
+                self.db.execute("BEGIN IMMEDIATE")
             for msg in snap["messages"]:
                 if ((msg.get("sender") not in SENDERS and not (msg.get("trust_class") == "unknown"
                         and msg.get("content_request") == source_for(msg))) or msg.get("key") != f"{cursor['uidvalidity']}:{msg.get('uid')}"
@@ -509,9 +521,16 @@ class Store:
                                 (msg["key"], msg.get("message_id", ""), canonical(msg), rid, reason))
                 if rid and not self.routes[rid].get("fallback") and msg.get("sender") in SENDERS and self.routes[rid].get("intake_policy") != external.MODE:
                     self.db.execute("INSERT OR IGNORE INTO anchors VALUES (?,?)", (msg["message_id"], rid))
+            semantic_result = None
+            if semantic_enqueue:
+                from agent_mail_routing_integration import enqueue_new_ingest
+                semantic_result = enqueue_new_ingest(self, snap["messages"], within_transaction=True)
+                if semantic_result.get("status") != "ok":
+                    raise MailError("semantic_enqueue_failed")
             # Same transaction as original/outbox admission; never skip unfetched mail.
             self.put("cursor", nxt)
             self.put("has_more", bool(snap.get("has_more")))
+        return semantic_result
 
     def reroute(self):
         with self.db:
@@ -869,6 +888,10 @@ def main(argv=None):
     p.add_argument("--trigger-state-b64")
     p.add_argument("--trigger-state-json")
     p.add_argument("--effects", action="store_true")
+    p.add_argument("--semantic-enqueue", action="store_true",
+                   help="Queue eligible newly ingested mail for the separate semantic worker")
+    p.add_argument("--semantic-preflight", action="store_true",
+                   help="Observe newly ingested semantic candidates without routing them")
     p = sub.add_parser("complete")
     p.add_argument("--batch", required=True)
     group = p.add_mutually_exclusive_group(required=True)
@@ -974,13 +997,17 @@ def main(argv=None):
                 error_dispatch = ledger.dispatch_error(Telegram()) if args.effects else {'status': 'disabled'}
                 snapshot_result = poll(store.get("cursor"))
                 tick_checkpoint("ingest")
-                store.ingest(snapshot_result)
+                semantic_queue = store.ingest(snapshot_result, semantic_enqueue=args.semantic_enqueue)
                 for message in snapshot_result['messages']:
                     tick_checkpoint("preview_errors")
                     if message.get('preview_error'):
                         ledger.error('mail-content', 'preview_' + fixed_code(message['preview_error']), message['key'])
                 tick_checkpoint("routing")
                 store.reroute()
+                semantic_preflight = None
+                if args.semantic_preflight:
+                    from agent_mail_routing_integration import observe_new_ingest
+                    semantic_preflight = observe_new_ingest(store, snapshot_result['messages'])
                 tick_checkpoint("batch")
                 batch = store.batch()
                 effects = []
@@ -1034,6 +1061,10 @@ def main(argv=None):
                        "fire": batch is not None, "batch": batch,
                        "state": dict(trigger, cursor=store.get("cursor"), mail_runtime_version=1),
                        "dispatch": effect, "error_dispatch": error_dispatch, "seen_dispatch": seen_dispatch, "work_dispatch": work_dispatch, "diagnostics": store.status()}
+                if semantic_preflight is not None:
+                    out["semantic_preflight"] = semantic_preflight
+                if semantic_queue is not None:
+                    out["semantic_queue"] = semantic_queue
             elif args.command == "dispatch":
                 deadline = runtime_started + max(0, TICK_ALARM_SECONDS - 2)
                 if args.deadline_monotonic is not None:

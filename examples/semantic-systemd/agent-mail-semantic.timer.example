@@ -1,0 +1,11 @@
+# Example only; enabling requires reviewed deployment and a fenced Gateway.
+[Unit]
+Description=Run queued agent mail semantic worker
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+Unit=agent-mail-semantic.service
+
+[Install]
+WantedBy=timers.target
