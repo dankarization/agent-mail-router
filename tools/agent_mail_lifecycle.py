@@ -31,6 +31,7 @@ class Ledger:
         self.db.executescript('''
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=FULL;
+            CREATE TABLE IF NOT EXISTS watchdog_notes (error_id TEXT PRIMARY KEY, decision TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS lifecycle_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS errors (
                 id TEXT PRIMARY KEY, component TEXT NOT NULL, code TEXT NOT NULL,
@@ -137,6 +138,27 @@ class Ledger:
         text = ('<b>Ошибка почтового монитора</b>\n' + html.escape(row['component'] + ': ' + row['code']) +
                 '\nПовторений: ' + str(row['occurrences']) +
                 '\nОшибка сохранена; данные и cursor не сбрасываются.\nMAIL-ERROR-' + row['id'])
+        note = self.db.execute('SELECT decision FROM watchdog_notes WHERE error_id=?', (row['id'],)).fetchone()
+        if note:
+            # Explicit states: readiness is not admission, and admission is not
+            # provider success. Never promise a result for a blocked/unknown enum.
+            messages = {
+                'analysis_ready': 'Разбор ещё не принят; запуск и результат не гарантированы.',
+                'analysis_admitted': 'Durable slot принят; исход разбора будет опубликован отдельно при доступной доставке. Успех модели не подтверждён.',
+                'analysis_ok': 'Разбор завершён; результат сохранён для отдельной доставки.',
+                'analysis_error': 'Разбор завершился ошибкой; исход сохранён для отдельной доставки.',
+                'analysis_timeout': 'Время разбора истекло; автоматического повтора нет.',
+                'analysis_unknown': 'Исход разбора неизвестен; admission сохранён, автоматического повтора нет.',
+                'analysis_daily_block': 'Разбор не принят: суточный лимит admissions исчерпан. Нового вызова нет.',
+                'daily_budget_block': 'Разбор заблокирован: суточный бюджет исчерпан. LLM вызовов: 0.',
+                'hard_cap_unavailable': 'Разбор заблокирован: точный hard cap input+output+reasoning недоступен. LLM вызовов: 0.',
+            }
+            # Repair and diagnosis are separate scopes: bounded repair only
+            # claims allowlisted, idempotent, locally observable actions.
+            text += ('\nWatchdog: инцидент не устранён; автоматическая починка ограничена ' +
+                     'allowlist идемпотентных действий и не заменяет разбор. ' +
+                     messages.get(note[0], 'Статус разбора не подтверждён; нужна проверка MAIN.') +
+                     ' Кодовые ошибки и неизвестные исходы требуют handoff MAIN и не чинятся автоматически.')
         # Atomic claim excludes simultaneous router/worker dispatchers.
         with self.db:
             changed = self.db.execute("UPDATE errors SET status='inflight',attempts=attempts+1 WHERE id=? AND status='pending'",

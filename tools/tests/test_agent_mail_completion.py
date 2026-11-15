@@ -176,6 +176,52 @@ class CompletionTests(unittest.TestCase):
         finally:
             ledger.close()
 
+    def test_batch_status_reports_durable_commit_without_new_effects(self):
+        bid, first = self.admit()
+        self.db.complete(bid, first)
+        before = self.snapshot()
+        stream = io.StringIO()
+        with redirect_stdout(stream), patch.object(m, "routes_at", return_value=self.routes):
+            code = m.main(["--state-dir", self.tmp.name, "batch-status", "--batch", bid])
+        self.assertEqual(code, 0)
+        out = json.loads(stream.getvalue())
+        self.assertEqual(out["status"], "completed")
+        self.assertEqual(out["accepted_result_digest"], m.digest(first))
+        self.assertEqual(self.snapshot(), before)
+
+    def test_status_does_not_recover_inflight_effects(self):
+        bid, first = self.admit()
+        self.db.complete(bid, first)
+        self.db.db.execute("UPDATE effects SET status=? WHERE rowid=(SELECT min(rowid) FROM effects)", ("inflight",))
+        self.db.db.commit()
+        before = self.snapshot()
+        status = m.read_batch_status(Path(self.tmp.name) / "mail.sqlite3", bid)
+        self.assertEqual(status["status"], "completed")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_deadline_before_commit_leaves_pending_batch(self):
+        bid, first = self.admit()
+        with patch.object(m.Store, "complete", side_effect=m.MailError("runtime_deadline")):
+            code, out = self.cli(bid, first)
+        self.assertEqual(code, 1)
+        self.assertEqual(out["error"], "runtime_deadline")
+        self.assertEqual(m.read_batch_status(Path(self.tmp.name) / "mail.sqlite3", bid)["status"], "pending")
+        self.assertEqual(self.db.db.execute("SELECT count(*) FROM summaries").fetchone()[0], 0)
+
+    def test_deadline_immediately_after_commit_reports_authoritative_result(self):
+        bid, first = self.admit()
+        original = m.Store.complete
+        def commit_then_timeout(store, batch, result):
+            original(store, batch, result)
+            raise m.MailError("runtime_deadline")
+        with patch.object(m.Store, "complete", new=commit_then_timeout):
+            code, out = self.cli(bid, first)
+        self.assertEqual(code, 0)
+        self.assertEqual(out["accepted_result_digest"], m.digest(first))
+        self.assertEqual(out["seen_queue"], "deferred")
+        self.assertEqual(self.db.db.execute("SELECT count(*) FROM summaries").fetchone()[0], 1)
+        self.assertEqual(self.db.db.execute("SELECT count(*) FROM effects").fetchone()[0], 2)
+
     def test_cli_true_conflict_still_reaches_error_outbox(self):
         bid, first = self.admit()
         self.db.complete(bid, first)

@@ -11,6 +11,7 @@ import base64
 import hashlib
 import html
 import json
+import math
 import os
 import re
 import signal
@@ -32,6 +33,9 @@ from agent_mail_content import SENDERS, PRIMARY_SENDERS, CONTENT_ROOT, read_mani
 from agent_mail_lifecycle import Ledger, record_error, fixed_code, COMPONENTS
 import agent_mail_external as external
 
+import agent_mail_readonly as readonly_checks
+import agent_mail_work as authorized_work
+
 TZ = ZoneInfo("Asia/Tbilisi")
 
 
@@ -42,6 +46,39 @@ class MailError(Exception):
         super().__init__(code)
         self.diagnostic = diagnostic
         self.error_outbox = error_outbox
+
+
+def _budget_env(name, default):
+    """Task-scoped timing budget override; never widens authority."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise MailError("budget_override_invalid") from None
+    if parsed <= 0:
+        raise MailError("budget_override_invalid")
+    return parsed
+
+
+# The scheduled headless trigger gives the whole tick a hard 30s wall clock
+# (HEADLESS_TRIGGER_WALL_CLOCK_MS). The previous 27s in-process alarm left only
+# ~3s for process spawn, the native exec await, result projection and Code Mode
+# resume/teardown. A slow evaluation hit the 30s wall clock during the awaited
+# RPC and was cancelled mid-flight (failurePhase=bridge, failureCode=tool_error).
+# That observation does not establish the outcome of each batch or cursor.
+# The observed cost after the child exits is ~9s (a 5s child settles at ~13.8s;
+# a 20s child at ~29.1s), covering tool admission, the native exec await, result
+# projection and Code Mode resume/teardown. The alarm must therefore terminate
+# the helper early enough to leave that margin, and stay strictly below the
+# trigger exec timeout, which is itself a backstop still inside the wall clock.
+TICK_ALARM_SECONDS = _budget_env("MAIL_ROUTER_TICK_ALARM_SECONDS", 18)
+TICK_POLL_TIMEOUT_SECONDS = _budget_env("MAIL_ROUTER_POLL_TIMEOUT_SECONDS", 15)
+TICK_DELIVERY_SECONDS = _budget_env("MAIL_ROUTER_TICK_DELIVERY_SECONDS", 15)
+TICK_DISPOSE_SECONDS = _budget_env("MAIL_ROUTER_TICK_DISPOSE_SECONDS", 13)
+TICK_SEEN_SECONDS = _budget_env("MAIL_ROUTER_TICK_SEEN_SECONDS", 8)
+COMPLETE_ALARM_SECONDS = 12
 
 
 def canonical(value):
@@ -80,10 +117,13 @@ def parse_completion(raw, encoded=False):
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
+        control = exc.msg.startswith("Invalid control character")
         raise MailError("summary_json_invalid", {
             "line": exc.lineno, "column": exc.colno, "position": exc.pos,
-            "reason": "invalid_escape" if exc.msg.startswith(("Invalid \\escape", "Invalid \\u")) else "json_syntax",
-            "hint": "Use a JSON serializer; escape backslashes as double backslashes."}) from None
+            "reason": "invalid_control_character" if control else
+                      "invalid_escape" if exc.msg.startswith(("Invalid \\escape", "Invalid \\u")) else "json_syntax",
+            "hint": "Serialize strings with json.dumps; do not insert literal control characters." if control else
+                    "Use a JSON serializer; escape backslashes as double backslashes."}) from None
 
 
 def digest(value):
@@ -118,9 +158,20 @@ def run_json(argv, timeout=6):
 
 
 class Gateway:
+    def __init__(self, deadline=None):
+        self.deadline = deadline
+
     def call(self, method, params):
+        timeout = 10
+        if self.deadline is not None:
+            remaining = self.deadline - time.monotonic()
+            # Validation must leave time for delivery; history is read-only.
+            timeout = min(timeout, remaining / 2 if method == "sessions.list" else remaining)
+            if timeout < 1:
+                raise MailError("delivery_budget_exhausted")
+        rpc_ms = max(1, min(7000, int((timeout - 0.5) * 1000)))
         return run_json([CLI, "gateway", "call", method, "--params", canonical(params),
-                         "--timeout", "7000", "--json"], timeout=10)
+                         "--timeout", str(rpc_ms), "--json"], timeout=timeout)
 
     def validate(self, route, target):
         result = self.call("sessions.list", {"search": target, "limit": 10})
@@ -248,9 +299,28 @@ def routes_at(path):
     return found
 
 
+def read_batch_status(path, bid):
+    # SQLite read-only mode observes committed WAL data without opening a writer,
+    # creating tables, recovering effects, or requiring the delivery lock.
+    if not re.fullmatch(r"[a-f0-9]{32}", bid):
+        raise MailError("batch_id_invalid")
+    try:
+        with sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=1) as db:
+            row = db.execute("SELECT result FROM batches WHERE id=?", (bid,)).fetchone()
+    except sqlite3.Error:
+        raise MailError("batch_status_unavailable") from None
+    if not row:
+        raise MailError("batch_not_found")
+    if row[0] is None:
+        return {"status": "pending", "batch_id": bid, "terminal": False}
+    return {"status": "completed", "batch_id": bid, "terminal": True,
+            "next_action": "NO_REPLY", "accepted_result_digest": digest(json.loads(row[0]))}
+
+
 class Store:
     def __init__(self, path, routes):
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.state_dir = path.parent
         self.db = sqlite3.connect(path, timeout=1)
         os.chmod(path, 0o600)
         self.db.row_factory = sqlite3.Row
@@ -462,6 +532,14 @@ class Store:
                     "context": self.routes[mail["route"]].get("report_context", {}),
                     "screening": (manifest.get("screening", external.screen(message))
                                   if message.get("content_request") else external.screen(message))}
+            else:
+                capability = readonly_checks.advertised([message])
+                if capability:
+                    message["readonly_checks"] = capability
+                work_capability = authorized_work.advertised(
+                    message, mail["reason"], self.routes[mail["route"]].get("paused", False), state=self.state_dir)
+                if work_capability:
+                    message["authorized_work"] = work_capability
             groups.setdefault(mail["route"], []).append(message)
         return {"batch_id": row["id"], "topics": [
             {"route_id": rid, "title": self.routes[rid]["title"], "parent": self.routes[rid]["parent"],
@@ -502,6 +580,7 @@ class Store:
             for rid, item in candidate.items():
                 obj = dict(item, sources=[{k: m.get(k) for k in ("key", "sender", "from", "authentication", "subject", "date", "body_truncated", "reading", "intake_policy", "external_report")}
                                           for m in expected[rid]["messages"]], route_snapshot=self.routes[rid])
+                obj["readonly_report"] = readonly_checks.report(self.state_dir, expected[rid]["messages"])
                 # Telegram's 4096 limit counts text after entities; UTF-16 is a safe bound.
                 rendered = self.render(obj, "MAIL-" + "0" * 32, telegram=True)
                 visible = html.unescape(re.sub(r"<[^>]*>", "", rendered))
@@ -572,6 +651,12 @@ class Store:
                     "\nИсходные записи сохранены; доступны по запросу.\n" + marker)
 
         text = output()
+        appendix = summary.get("readonly_report", "")
+        if appendix:
+            # Never reject/delay a mail report because optional checks add text.
+            room = max(0, 4000 - len(html.unescape(re.sub(r"<[^>]*>", "", text)).encode("utf-16-le")) // 2)
+            details += appendix.encode("utf-16-le")[:room * 2].decode("utf-16-le", errors="ignore")
+            text = output()
         if fallback and telegram:
             visible = html.unescape(re.sub(r"<[^>]*>", "", text))
             excess = len(visible.encode("utf-16-le")) // 2 - 4000
@@ -632,10 +717,10 @@ class Store:
                 self.db.execute("UPDATE effects SET status='unavailable',error='route_session_unavailable' WHERE id=? AND status='pending'", (row["id"],))
         return {"status": "rerouted" if redirect else "unavailable", "kind": row["kind"]}
 
-    def dispatch_one(self, gateway, telegram, clock=utcnow):
-        # Contexts first: discover an unavailable child before any Telegram send.
-        # Each step still uses at most one validation plus one delivery RPC.
-        row = self.db.execute("SELECT * FROM effects WHERE status='pending' AND (kind='context' OR ?=1) ORDER BY CASE kind WHEN 'context' THEN 0 ELSE 1 END,rowid LIMIT 1",
+    def dispatch_one(self, gateway, telegram, clock=utcnow, deadline=None):
+        # FIFO summaries, contexts first WITHIN each summary. New contexts cannot
+        # starve an older ready notification. Held effects are never retried.
+        row = self.db.execute("SELECT e.* FROM effects e JOIN summaries s ON s.id=e.summary_id WHERE e.status='pending' AND (e.kind='context' OR ?=1) ORDER BY s.rowid,CASE e.kind WHEN 'context' THEN 0 ELSE 1 END,e.rowid LIMIT 1",
                               (int(day(clock())),)).fetchone()
         if not row:
             uncertain = self.db.execute("SELECT * FROM effects WHERE status='unknown' AND kind='context' ORDER BY rowid LIMIT 1").fetchone()
@@ -646,6 +731,8 @@ class Store:
                         self.db.execute("UPDATE effects SET status='sent',receipt=?,error=NULL WHERE id=?", (receipt, uncertain["id"]))
                     return {"status": "reconciled", "kind": "context"}
             return {"status": "quiet"}
+        if deadline is not None and deadline - time.monotonic() < 2:
+            return {"status": "deferred", "kind": row["kind"]}
         summary = json.loads(self.db.execute("SELECT payload FROM summaries WHERE id=?", (row["summary_id"],)).fetchone()[0])
         route = summary["route_snapshot"]
         fallback = self.db.execute("SELECT * FROM delivery_fallbacks WHERE summary_id=?", (row["summary_id"],)).fetchone()
@@ -653,6 +740,8 @@ class Store:
             try:
                 gateway.validate(route, row["target"])
             except MailError as exc:
+                if str(exc) == "delivery_budget_exhausted" or (deadline is not None and str(exc) == "command_failed_or_timeout"):
+                    return {"status": "deferred", "kind": row["kind"]}
                 if str(exc) != "route_session_unavailable":
                     raise
                 return self.fallback_delivery(row)
@@ -662,6 +751,11 @@ class Store:
             route = json.loads(fallback["route_json"])
         if row["kind"] == "notify" and not day(clock()):
             return {"status": "deferred"}
+        # Pre-intent budget exhaustion is proven no-send, not an unknown ACK.
+        # Telegram's existing 3s transport bound must fit; contexts use Gateway's
+        # remaining deadline. The default 18s tick alarm is an additional backstop.
+        if deadline is not None and deadline - time.monotonic() < (3 if row["kind"] == "notify" else 1):
+            return {"status": "deferred", "kind": row["kind"]}
         with self.db:
             self.db.execute("UPDATE effects SET status='inflight' WHERE id=?", (row["id"],))
         try:
@@ -699,7 +793,7 @@ def poll(cursor):
     try:
         p = subprocess.run([sys.executable, str(ROOT / "tools/agent_mail_snapshot.py"),
                             "--cursor", canonical(cursor), "--limit", "10"],
-                           capture_output=True, timeout=19)
+                           capture_output=True, timeout=TICK_POLL_TIMEOUT_SECONDS)
         snap = json.loads(p.stdout)
     except Exception:
         raise MailError("mail_snapshot_failed") from None
@@ -725,7 +819,10 @@ def main(argv=None):
     group.add_argument("--result-b64")
     group.add_argument("--result-json")
     sub.add_parser("status")
-    sub.add_parser("dispatch", help="Existing effects only; no IMAP poll, model or Seen work")
+    p = sub.add_parser("batch-status", help="Read durable completion status by batch ID")
+    p.add_argument("--batch", required=True)
+    p = sub.add_parser("dispatch", help="Existing effects only; no IMAP poll, model or Seen work")
+    p.add_argument("--deadline-monotonic", type=float)
     sub.add_parser("errors-status")
     sub.add_parser("errors-dispatch")
     p = sub.add_parser("report-error")
@@ -746,17 +843,26 @@ def main(argv=None):
     p.add_argument("--outcome", choices=["delivered", "not-delivered"], required=True)
     p.add_argument("--receipt", required=True)
     args = parser.parse_args(argv)
+    if args.command == "batch-status":
+        try:
+            print(canonical(read_batch_status(args.state_dir / "mail.sqlite3", args.batch)))
+            return 0
+        except MailError as exc:
+            print(canonical({"status": "error", "error": str(exc)}))
+            return 1
     import fcntl
     args.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     old_umask = os.umask(0o077)
     runtime_started = time.monotonic()
     store = None
     ledger = None
+    completion_candidate = None
+    completion = None
 
     def timeout(*_):
         raise MailError("runtime_deadline")
     signal.signal(signal.SIGALRM, timeout)
-    signal.alarm(27)
+    signal.alarm(COMPLETE_ALARM_SECONDS if args.command == "complete" else TICK_ALARM_SECONDS)
     try:
         ledger = Ledger(args.state_dir)
         if args.command in ('errors-status', 'errors-dispatch', 'report-error', 'resolve-error'):
@@ -796,14 +902,20 @@ def main(argv=None):
                 store.reroute()
                 batch = store.batch()
                 effects = []
-                # Admit a step only with its worst-case two CLI calls (20s) left.
-                # Typical empty IMAP + CLI permits several destinations per tick.
-                while args.effects and time.monotonic() - runtime_started < 6 and len(effects) < 10:
+                # Poll may consume its bounded share. Share the remaining command
+                # budget with transport instead of imposing a 6s admission cutoff.
+                # Leave a margin for durable result/status publication before the
+                # alarm, which itself fires strictly inside the trigger wall clock.
+                delivery_deadline = runtime_started + TICK_DELIVERY_SECONDS
+                while args.effects and time.monotonic() < delivery_deadline - 1 and len(effects) < 10:
                     try:
-                        effect = store.dispatch_one(Gateway(), Telegram())
+                        effect = store.dispatch_one(Gateway(delivery_deadline), Telegram(), deadline=delivery_deadline)
                     except MailError as exc:
                         if str(exc) == "runtime_deadline":
                             raise
+                        if str(exc) == "delivery_budget_exhausted":
+                            effects.append({"status": "deferred"})
+                            break
                         # Delivery has its own durable state. Never discard a
                         # newly admitted batch/cursor from the public response.
                         code = fixed_code(str(exc))
@@ -813,7 +925,7 @@ def main(argv=None):
                     if effect["status"] in ("quiet", "deferred", "pending", "error"):
                         break
                 seen_dispatch = {'status': 'disabled'}
-                if args.effects and time.monotonic() - runtime_started < 12:
+                if args.effects and time.monotonic() - runtime_started < TICK_SEEN_SECONDS:
                     pending = ledger.db.execute("SELECT key FROM seen WHERE status='pending' ORDER BY rowid LIMIT 1").fetchone()
                     if pending:
                         try:
@@ -823,15 +935,29 @@ def main(argv=None):
                             ledger.error('mail-seen', 'seen_worker_failed', pending['key'])
                             seen_dispatch = {'status': 'pending'}
                 effect = effects if args.effects else [{"status": "disabled"}]
+                work_dispatch = {"status": "deferred"}
+                if args.effects and delivery_deadline - time.monotonic() >= 4:
+                    try:
+                        work_dispatch = authorized_work.service(
+                            args.state_dir, Gateway(delivery_deadline), Telegram(), utcnow, day)
+                    except Exception:
+                        # Work intake never suppresses independent mail reporting.
+                        work_dispatch = {"status": "held", "error": "work_service_unavailable"}
                 out = {"status": "degraded" if any(e.get("error") for e in effects) else "ok",
                        "fire": batch is not None, "batch": batch,
                        "state": dict(trigger, cursor=store.get("cursor"), mail_runtime_version=1),
-                       "dispatch": effect, "error_dispatch": error_dispatch, "seen_dispatch": seen_dispatch, "diagnostics": store.status()}
+                       "dispatch": effect, "error_dispatch": error_dispatch, "seen_dispatch": seen_dispatch, "work_dispatch": work_dispatch, "diagnostics": store.status()}
             elif args.command == "dispatch":
-                out = store.dispatch_one(Gateway(), Telegram())
+                deadline = runtime_started + max(0, TICK_ALARM_SECONDS - 2)
+                if args.deadline_monotonic is not None:
+                    if not math.isfinite(args.deadline_monotonic):
+                        raise MailError("dispatch_deadline_invalid")
+                    deadline = min(deadline, args.deadline_monotonic)
+                out = store.dispatch_one(Gateway(deadline), Telegram(), deadline=deadline)
             elif args.command == "complete":
                 result = parse_completion(args.result_json if args.result_json is not None else args.result_b64,
                                           encoded=args.result_json is None)
+                completion_candidate = result
                 completion = store.complete(args.batch, result)
                 # Preserve the CLI's successful status for existing summarizers.
                 # Disposition is separate from durability/terminal acknowledgement.
@@ -876,10 +1002,41 @@ def main(argv=None):
         print(canonical(out))
         return 0
     except Exception as exc:
-        code = fixed_code(str(exc)) if isinstance(exc, MailError) else 'mail_runtime_failed'
+        if args.command == "complete" and completion is not None:
+            print(canonical(dict(completion, status="stored", completion_status=completion["status"], seen_queue="deferred")))
+            return 0
+        if (args.command == "complete" and isinstance(exc, MailError)
+                and str(exc) == "runtime_deadline" and store is not None and completion_candidate is not None):
+            # A signal can arrive just after COMMIT; verify the stored outcome,
+            # and do not acknowledge a structurally conflicting candidate.
+            try:
+                status = read_batch_status(args.state_dir / "mail.sqlite3", args.batch)
+            except (MailError, ValueError, sqlite3.Error):
+                status = None
+            if status and status["status"] == "completed":
+                row = store.db.execute("SELECT result FROM batches WHERE id=?", (args.batch,)).fetchone()
+                accepted = validated_result(json.loads(row["result"]))
+                candidate = validated_result(completion_candidate)
+                if {k: v["kind"] for k, v in accepted.items()} == {k: v["kind"] for k, v in candidate.items()}:
+                    print(canonical(dict(status, status="stored", completion_status="already_completed", seen_queue="deferred")))
+                    return 0
+        code = fixed_code(str(exc)) if isinstance(exc, MailError) else "mail_runtime_failed"
+        # A rejected input is not a failed runtime or delivery. The summarizer
+        # may correct syntax for an existing pending batch; durable pending-batch
+        # observation still detects abandonment. Never suppress conflicts,
+        # storage failures or validation against missing/completed identities.
+        if (args.command == 'complete' and isinstance(exc, MailError)
+                and code in ('summary_json_invalid', 'summary_encoding_invalid')
+                and store is not None and store.db.execute(
+                    'SELECT 1 FROM batches WHERE id=? AND result IS NULL', (args.batch,)).fetchone()):
+            out = {"status": "error", "error": code, "retryable": True,
+                   "batch_retained": True, "next_action": "correct_result_only",
+                   "validation": exc.diagnostic}
+            print(canonical(out))
+            return 1
         alert = (exc.error_outbox if isinstance(exc, MailError) else None) or record_error(args.state_dir, 'mail-monitor', code)
         dispatched = {'status': 'retained'}
-        if args.command == 'tick' and args.effects and ledger and time.monotonic() - runtime_started < 22:
+        if args.command == 'tick' and args.effects and ledger and time.monotonic() - runtime_started < TICK_DISPOSE_SECONDS:
             try:
                 dispatched = ledger.dispatch_error(Telegram())
             except Exception:

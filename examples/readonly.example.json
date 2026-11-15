@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "enabled": true,
+  "conditional_senders": ["source-a@example.invalid", "source-a-new@example.invalid"],
+  "vantage": "operator-gateway",
+  "openclaw_config": "state/secrets/openclaw.json",
+  "targets": {"hp.tcp": null, "vm140.tcp": null}
+}

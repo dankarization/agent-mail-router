@@ -111,3 +111,66 @@ class RecoveryTests(fixtures.unittest.TestCase):
         with patch.object(gw, 'call', return_value={'sessionKey': 'other', 'messages': [message]}):
             with self.assertRaisesRegex(m.MailError, 'context_history_invalid'):
                 gw.find(target, marker)
+
+
+    def test_raw_control_rejection_retains_pending_then_serializer_completes_once(self):
+        self.db.ingest(snap([msg(1, reply='<alpha@test.local>')]))
+        bid = self.db.batch()['batch_id']
+        candidate = [dict(result('alpha'), details='Synthetic control ' + chr(8) + ' marker')]
+        encoded = json.dumps(candidate, ensure_ascii=False)
+        raw = encoded.replace('\\b', chr(8))
+        before = {table: [tuple(r) for r in self.db.db.execute('SELECT * FROM ' + table)]
+                  for table in ('meta', 'mail', 'batches', 'summaries', 'effects')}
+        for _ in range(2):
+            code, out = self.cli('complete', '--batch', bid, '--result-json', raw)
+            self.assertEqual(code, 1)
+            self.assertEqual(out['validation']['reason'], 'invalid_control_character')
+            self.assertEqual(out['validation']['position'], raw.index(chr(8)))
+            self.assertIs(out['retryable'], True)
+            self.assertIs(out['batch_retained'], True)
+            self.assertEqual(out['next_action'], 'correct_result_only')
+            self.assertNotIn('error_outbox', out)
+            self.assertNotIn('Synthetic control', json.dumps(out))
+        self.assertEqual(before, {table: [tuple(r) for r in self.db.db.execute('SELECT * FROM ' + table)]
+                                 for table in before})
+        with patch('agent_mail_seen.queue_if_ready', return_value=False):
+            for expected in ('stored', 'already_completed'):
+                code, out = self.cli('complete', '--batch', bid, '--result-json', encoded)
+                self.assertEqual(code, 0)
+                self.assertEqual(out['completion_status'], expected)
+        self.assertEqual(self.db.db.execute('SELECT count(*) FROM summaries').fetchone()[0], 1)
+        self.assertEqual(self.db.db.execute('SELECT count(*) FROM effects').fetchone()[0], 3)
+        ledger = m.Ledger(self.path.parent)
+        try:
+            self.assertEqual(ledger.status()['errors'], [])
+        finally:
+            ledger.close()
+        self.gw.inject.assert_not_called(); self.tg.send.assert_not_called()
+
+    def test_pending_encoding_error_is_recoverable_but_missing_batch_is_operational(self):
+        self.db.ingest(snap([msg(1, reply='<alpha@test.local>')]))
+        bid = self.db.batch()['batch_id']
+        code, out = self.cli('complete', '--batch', bid, '--result-b64', '%%%')
+        self.assertEqual(code, 1)
+        self.assertIs(out['retryable'], True)
+        self.assertNotIn('error_outbox', out)
+        code, out = self.cli('complete', '--batch', 'missing', '--result-json', '{')
+        self.assertEqual(code, 1)
+        self.assertIn('error_outbox', out)
+        self.assertNotIn('retryable', out)
+
+    def test_abandoned_invalid_candidate_remains_visible_to_watchdog(self):
+        import agent_mail_watchdog as watchdog
+        import test_agent_mail_watchdog as observer
+        fixture = observer.WatchdogTests()
+        fixture.setUp()
+        try:
+            with __import__('sqlite3').connect(fixture.state / 'mail.sqlite3') as db:
+                db.execute("INSERT INTO batches(id,result) VALUES ('synthetic-pending',NULL)")
+            observation = fixture.collect()
+            self.assertTrue(observation['valid'])
+            self.assertEqual(observation['lanes']['mail-monitor']['code'], 'summary_pending')
+            self.assertEqual(observation['lanes']['mail-monitor']['event'],
+                             watchdog.digest([{'id': 'synthetic-pending'}]))
+        finally:
+            fixture.tearDown()
