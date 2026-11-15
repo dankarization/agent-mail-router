@@ -116,3 +116,8 @@ exact audience on destination failure instead of widening it to general mail.
 
 No scheduler definition, system service, SMTP sender, automation workflow,
 Gateway configuration, A2A rollout or other project's code is included.
+
+Optional, review-gated semantic routing can copy new fallback mail context into
+an eligible existing session without granting work authority. See
+[semantic routing](docs/semantic-routing.md) for the queue, scope, runtime,
+delivery fence and operational limitations. It is disabled by default.
