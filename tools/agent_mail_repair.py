@@ -69,7 +69,7 @@ def run(argv, timeout=45):
         return {'status': 'failed', 'code': 'repair_argv_rejected'}
     if action == "dispatch":
         if timeout <= 2:
-            return {"status": "unknown", "code": "repair_budget_exhausted"}
+            return {"status": "deferred", "code": "repair_budget_exhausted"}
         argv = [*argv, "--deadline-monotonic", str(time.monotonic() + timeout - 2)]
     try:
         process = subprocess.run(argv, capture_output=True, timeout=timeout)

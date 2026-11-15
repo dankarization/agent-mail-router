@@ -108,6 +108,25 @@ class RepairTests(WatchdogTests):
             self.assertEqual(db.execute("SELECT count(*) FROM effects WHERE status='pending'").fetchone()[0], 1)
         self.assertEqual(self.ledger.status()['errors'], [])
 
+    def test_watchdog_short_dispatch_budget_defers_without_child_or_intent(self):
+        from unittest.mock import patch
+        import agent_mail_repair as executor
+        self.w.enable_repair(['dispatch_pending_effect'], self.now)
+        self.open_incident('mail-delivery', 'mail-delivery_overdue')
+        with sqlite3.connect(self.state / 'mail.sqlite3') as db:
+            db.execute("INSERT INTO effects VALUES ('e1','context','pending','t',NULL,'s')")
+        with patch.object(w.time, 'monotonic', return_value=100), patch.object(executor.subprocess, 'run') as launch:
+            out = self.w.repair(self.now, executor.run, budget=2)
+        self.assertEqual((out['status'], out['code']), ('deferred', 'repair_budget_exhausted'))
+        launch.assert_not_called()
+        with sqlite3.connect(self.state / 'mail.sqlite3') as db:
+            self.assertEqual(db.execute("SELECT status FROM effects WHERE id='e1'").fetchone()[0], 'pending')
+        self.assertEqual(self.w.status()['repairs'][0]['outcome'], 'deferred')
+        self.assertEqual(self.w.repair(self.now + 1, self.runner([]))['status'], 'idle')
+        calls = []
+        self.assertEqual(self.w.repair(self.now + 400, self.runner(calls))['status'], 'ok')
+        self.assertEqual(len(calls), 1)
+
     def test_unknown_outcome_is_never_retried(self):
         self.w.enable_repair(['apply_seen_once'], self.now)
         self.open_incident('mail-seen', 'mail-seen_held')
@@ -208,6 +227,16 @@ class ExecutorBoundaryTests(unittest.TestCase):
         self.assertEqual(self.r.validate([self.python, 'agent_mail_content.py', '--state-dir', state, 'seen', '--key', '77:9', '--apply']), 'seen')
         self.assertEqual(self.r.validate([self.python, 'syncopia_agent_mail_content.py', '--state-dir', state, 'seen', '--key', '77:1042', '--apply']), 'seen')
         self.assertEqual(self.r.validate([self.python, 'agent_mail_router.py', '--state-dir', prefix, 'dispatch']), 'dispatch')
+
+    def test_dispatch_short_budget_defers_without_starting_subprocess(self):
+        from unittest.mock import patch
+        argv = [self.python, 'agent_mail_router.py', '--state-dir', '/state/mail-routing', 'dispatch']
+        with patch.object(self.r.subprocess, 'run') as launch:
+            for timeout in (0, 1, 2):
+                with self.subTest(timeout=timeout):
+                    self.assertEqual(self.r.run(argv, timeout=timeout),
+                                     {'status': 'deferred', 'code': 'repair_budget_exhausted'})
+            launch.assert_not_called()
 
     def test_dispatch_child_receives_budget_strictly_inside_parent_timeout(self):
         from unittest.mock import patch

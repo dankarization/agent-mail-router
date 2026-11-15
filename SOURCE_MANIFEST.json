@@ -115,8 +115,8 @@
     },
     {
       "path": "tools/agent_mail_repair.py",
-      "bytes": 5823,
-      "sha256": "f1b1b6099f42483edf79a10bb51800b189d99bd8447f11621a6e2256d7db71f9"
+      "bytes": 5824,
+      "sha256": "3423dc3a521788270733d98fe65e3e89faff6467f6cdcaf3062663695b390ac6"
     },
     {
       "path": "tools/agent_mail_router.py",
@@ -200,8 +200,8 @@
     },
     {
       "path": "tools/tests/test_agent_mail_repair_loop.py",
-      "bytes": 14887,
-      "sha256": "98e947f56e50d738088a9272806d502307f29398306b97ff462ba0b6fad771e9"
+      "bytes": 16740,
+      "sha256": "3999ee1525a2cfbeceb1a4269f9e9b30b4359aa772ca9b77bd89d1f408c2b3c8"
     },
     {
       "path": "tools/tests/test_agent_mail_router.py",
