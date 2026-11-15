@@ -110,6 +110,49 @@ class AnalyzerTests(unittest.TestCase):
             self.assertEqual(self.w.status()['analysis'][0]['main_receipt'],'MAIN-RECEIPT')
             telegram.return_value.send.assert_not_called()
 
+    def test_deliver_skips_hundred_completed_rows_to_reach_pending(self):
+        for i in range(100):
+            self.w.db.execute("INSERT INTO wd_analysis(incident,day,started,completed,status,result,main_status,notify_status) VALUES (?,?,?,?,?,?,?,?)",
+                              (f'old-{i}', 'fixture', i, i+1, 'ok', 'fixture', 'sent', 'sent'))
+        self.w.db.execute("INSERT INTO wd_analysis(incident,day,started,completed,status,result) VALUES (?,?,?,?,?,?)",
+                          ('new', 'fixture', 101, 102, 'ok', 'fixture'))
+        with patch('agent_mail_router.Gateway') as gateway:
+            gateway.return_value.inject.return_value='fixture-receipt'
+            a.deliver(self.w,None,False)
+            gateway.return_value.inject.assert_called_once()
+        self.assertEqual(self.w.db.execute("SELECT main_status FROM wd_analysis WHERE incident='new'").fetchone()[0], 'sent')
+
+    def test_ready_notification_precedes_hundred_held_main_lookups(self):
+        from test_agent_mail_router import DAY
+        for i in range(100):
+            self.w.db.execute("INSERT INTO wd_analysis(incident,day,started,completed,status,result,main_status,notify_status) VALUES (?,?,?,?,?,?,?,?)",
+                              (f'held-{i}', 'fixture', i, i+1, 'ok', 'fixture', 'unknown' if i % 2 else 'inflight', 'pending'))
+        self.w.db.execute("INSERT INTO wd_analysis(incident,day,started,completed,status,result,main_status,notify_status) VALUES (?,?,?,?,?,?,?,?)",
+                          ('ready', 'fixture', 101, 102, 'ok', 'fixture', 'sent', 'pending'))
+        with patch('agent_mail_router.Gateway') as gateway, patch('agent_mail_router.Telegram') as telegram, patch.object(a, 'datetime') as clock:
+            clock.now.return_value = DAY
+            gateway.return_value.find.return_value = None
+            telegram.return_value.send.return_value = {'status': 'sent', 'receipt': 'fixture'}
+            a.deliver(self.w, None, True)
+            telegram.return_value.send.assert_called_once()
+            gateway.return_value.inject.assert_not_called()
+            self.assertEqual(gateway.return_value.find.call_count, 99)
+        self.assertEqual(self.w.db.execute("SELECT notify_status FROM wd_analysis WHERE incident='ready'").fetchone()[0], 'sent')
+        self.assertEqual(self.w.db.execute("SELECT count(*) FROM wd_analysis WHERE main_status IN ('unknown','inflight')").fetchone()[0], 100)
+
+    def test_telegram_pending_retries_after_rate_limit(self):
+        from test_agent_mail_router import DAY
+        self.enable();self.admit();self.w.analyze_one(self.success,self.now+400)
+        with patch('agent_mail_router.Gateway') as gateway,patch('agent_mail_router.Telegram') as telegram,patch.object(a,'datetime') as clock:
+            clock.now.return_value=DAY
+            gateway.return_value.inject.return_value='MAIN-RECEIPT'
+            telegram.return_value.send.side_effect=[{'status':'pending'}, {'status':'sent','receipt':'fixture'}]
+            a.deliver(self.w,None,True)
+            self.assertEqual(self.w.status()['analysis'][0]['notify_status'],'pending')
+            a.deliver(self.w,None,True)
+            self.assertEqual(telegram.return_value.send.call_count,2)
+            self.assertEqual(self.w.status()['analysis'][0]['notify_status'],'sent')
+
     def test_main_injection_failure_held_no_notification_or_retry(self):
         self.enable();self.admit();self.w.analyze_one(self.success,self.now+400)
         with patch('agent_mail_router.Gateway') as gateway,patch('agent_mail_router.Telegram') as telegram:
