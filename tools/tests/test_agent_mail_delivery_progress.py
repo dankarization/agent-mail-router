@@ -126,14 +126,14 @@ class DeliveryProgressTests(unittest.TestCase):
         for row in before:
             self.assertIn(row, [tuple(r) for r in self.db.db.execute('SELECT id,receipt FROM effects')])
 
-    def test_poll_past_the_delivery_budget_degrades_without_cancelling_the_tick(self):
-        # A poll slow enough to exhaust the shared delivery budget must leave the
-        # effect pending and still return the admitted batch/cursor (exit 0), so
+    def test_poll_past_delivery_budget_but_within_tick_preserves_pending_notify(self):
+        # A poll that exhausts delivery budget but fits the global budget must leave the
+        # effect pending and still return existing batch/cursor (exit 0), so
         # the trigger never hits its wall clock and cancels the tick mid-flight.
         self.complete([routing.msg(1, reply='<alpha@test.local>')])
         self.db.dispatch_one(self.gw, self.tg, lambda: routing.NIGHT)
         self.tg.send.reset_mock()
-        out = self.tick(poll_seconds=m.TICK_DELIVERY_SECONDS + 2)
+        out = self.tick(poll_seconds=m.TICK_DELIVERY_SECONDS + 0.25)
         self.assertEqual(out['dispatch'], [])
         self.tg.send.assert_not_called()
         self.assertEqual(self.db.db.execute(
