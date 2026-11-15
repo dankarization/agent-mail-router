@@ -320,6 +320,122 @@ class WorkTests(unittest.TestCase):
             self.dispatch()
         self.gw.call.assert_not_called()
 
+    def test_policy_changed_head_does_not_block_new_authorized_task(self):
+        old_id = self.offer()['results'][0]['task_id']
+        self.policy['authorization_ref'] = 'changed'
+        self.pp.write_text(json.dumps(self.policy))
+        second = self.make_message(100, body=self.message['body'] + ' Another independent task.')
+        self.store.ingest(f.snap([second]))
+        state = w.State(self.state)
+        old = state.db.execute('SELECT * FROM work_tasks WHERE id=?', (old_id,)).fetchone()
+        state.db.execute('INSERT INTO work_tasks VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                         ('new-task', second['key'], 'new-identity', 'new-digest', old['batch'], old['owner'],
+                          w.encoded(self.policy), old['evidence'], old['request'], 'queued', old['created']))
+        state.db.execute('INSERT INTO work_outbox VALUES (?,?,?,?,?,?,?)',
+                         ('new-effect', 'new-task', 'owner', 'handoff', '{}', 'pending', None))
+        state.db.commit(); state.close()
+        self.assertEqual(self.dispatch()['status'], 'sent')
+        self.assertEqual(self.gw.call.call_args.args[1]['idempotencyKey'], 'mail-work-new-task')
+        state = w.State(self.state)
+        self.assertEqual(state.db.execute("SELECT status FROM work_outbox WHERE task_id=? AND kind='owner'", (old_id,)).fetchone()[0], 'pending')
+        state.close()
+
+    def two_pending_tasks(self):
+        old_id = self.offer()['results'][0]['task_id']
+        second = self.make_message(100, body=self.message['body'] + ' Another independent task.')
+        self.store.ingest(f.snap([second]))
+        state = w.State(self.state)
+        old = state.db.execute('SELECT * FROM work_tasks WHERE id=?', (old_id,)).fetchone()
+        state.db.execute('INSERT INTO work_tasks VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                         ('new-task', second['key'], 'new-identity', 'new-digest', old['batch'], old['owner'],
+                          old['policy'], old['evidence'], old['request'], 'queued', old['created']))
+        state.db.execute('INSERT INTO work_outbox VALUES (?,?,?,?,?,?,?)',
+                         ('new-effect', 'new-task', 'owner', 'handoff', '{}', 'pending', None))
+        state.db.commit(); state.close()
+        return old_id
+
+    def test_target_held_first_does_not_block_eligible_and_all_held_reports_reason(self):
+        old_id = self.two_pending_tasks()
+        state = w.State(self.state)
+        evidence = json.loads(state.db.execute('SELECT evidence FROM work_tasks WHERE id=?', (old_id,)).fetchone()[0])
+        evidence['target'] = None
+        state.db.execute('UPDATE work_tasks SET evidence=? WHERE id=?', (w.encoded(evidence), old_id))
+        state.db.commit(); state.close()
+        self.assertEqual(self.dispatch()['task_id'], 'new-task')
+        self.assertEqual(self.gw.call.call_count, 1)
+        self.assertEqual(self.dispatch()['status'], 'target_policy_held')
+        state = w.State(self.state)
+        self.assertEqual(state.db.execute("SELECT status FROM work_outbox WHERE task_id=? AND kind='owner'", (old_id,)).fetchone()[0], 'pending')
+        state.close()
+
+    def test_source_held_first_does_not_block_eligible_and_all_held_reports_reason(self):
+        old_id = self.two_pending_tasks()
+        self.store.db.execute("UPDATE mail SET route=NULL WHERE key='77:99'"); self.store.db.commit()
+        self.assertEqual(self.dispatch()['task_id'], 'new-task')
+        self.assertEqual(self.gw.call.call_count, 1)
+        self.assertEqual(self.dispatch()['status'], 'source_policy_held')
+        state = w.State(self.state)
+        self.assertEqual(state.db.execute("SELECT status FROM work_outbox WHERE task_id=? AND kind='owner'", (old_id,)).fetchone()[0], 'pending')
+        state.close()
+
+    def test_quiet_notification_does_not_block_owner_and_stays_pending(self):
+        old_id = self.two_pending_tasks()
+        state = w.State(self.state)
+        state.db.execute("UPDATE work_outbox SET kind='notify',phase='started',payload=? WHERE task_id=?", (w.encoded({'detail': 'fixture'}), old_id))
+        state.db.commit(); state.close()
+        self.assertEqual(self.dispatch(f.NIGHT)['task_id'], 'new-task')
+        self.gw.call.assert_called_once(); self.tg.send.assert_not_called()
+        self.assertEqual(self.dispatch(f.NIGHT)['status'], 'quiet')
+        self.tg.send.assert_not_called()
+        state = w.State(self.state)
+        self.assertEqual(state.db.execute("SELECT status FROM work_outbox WHERE task_id=?", (old_id,)).fetchone()[0], 'pending')
+        state.close()
+        self.assertEqual(self.dispatch(f.DAY)['status'], 'sent')
+        self.tg.send.assert_called_once(); self.gw.call.assert_called_once()
+
+    def test_all_held_with_quiet_notification_returns_quiet(self):
+        old_id = self.two_pending_tasks()
+        state = w.State(self.state)
+        evidence = json.loads(state.db.execute('SELECT evidence FROM work_tasks WHERE id=?', (old_id,)).fetchone()[0])
+        evidence['target'] = None
+        state.db.execute('UPDATE work_tasks SET evidence=? WHERE id=?', (w.encoded(evidence), old_id))
+        state.db.execute("UPDATE work_outbox SET kind='notify',phase='started',payload=? WHERE id='new-effect'", (w.encoded({'detail': 'fixture'}),))
+        state.db.commit(); state.close()
+        self.assertEqual(self.dispatch(f.NIGHT)['status'], 'quiet')
+        self.gw.call.assert_not_called(); self.tg.send.assert_not_called()
+        state = w.State(self.state)
+        self.assertEqual([r[0] for r in state.db.execute("SELECT status FROM work_outbox ORDER BY rowid")], ['pending','pending'])
+        state.close()
+
+    def test_uncertain_gateway_validation_does_not_skip_to_second_task(self):
+        self.two_pending_tasks()
+        self.gw.validate.side_effect = f.m.MailError('route_validation_incomplete')
+        self.assertEqual(self.dispatch()['status'], 'deferred')
+        self.gw.validate.assert_called_once(); self.gw.call.assert_not_called()
+        state = w.State(self.state)
+        self.assertEqual([r[0] for r in state.db.execute("SELECT status FROM work_outbox WHERE kind='owner' ORDER BY rowid")], ['pending','pending'])
+        state.close()
+
+    def test_thread_refusal_queues_exactly_one_durable_blocker(self):
+        tid = self.offer()['results'][0]['task_id']
+        with patch.object(w, 'thread_handoff_allowed', return_value=False):
+            out = self.dispatch()
+        self.assertEqual(out['status'], 'rejected'); self.gw.call.assert_not_called()
+        state = w.State(self.state)
+        rows = state.db.execute("SELECT kind,status FROM work_outbox WHERE task_id=? ORDER BY rowid", (tid,)).fetchall()
+        self.assertEqual([(r['kind'],r['status']) for r in rows], [('owner','rejected'),('notify','pending')])
+        state.close()
+        self.assertEqual(self.dispatch()['status'], 'sent'); self.tg.send.assert_called_once()
+        self.dispatch(); self.tg.send.assert_called_once(); self.gw.call.assert_not_called()
+
+    def test_telegram_pending_notification_retries_after_rate_limit(self):
+        tid = self.offer()['results'][0]['task_id']; self.dispatch()
+        state = w.State(self.state); state.update(tid, self.owner, 'started', 'Started.'); state.close()
+        self.tg.send.side_effect = [{'status':'pending'}, {'status':'sent','receipt':'fixture'}]
+        self.assertEqual(self.dispatch()['status'], 'pending')
+        self.assertEqual(self.dispatch()['status'], 'sent')
+        self.assertEqual(self.tg.send.call_count, 2)
+
     def test_tick_services_real_work_queue_without_polling_again_or_losing_report(self):
         self.offer()
         output = io.StringIO()

@@ -205,7 +205,10 @@ def deliver(watcher, consumer=None, dispatch=False):
     Independent receipt slots never retry inflight/unknown sends. No model wake.
     """
     from agent_mail_router import Gateway, Telegram
-    rows = watcher.db.execute("SELECT * FROM wd_analysis WHERE completed IS NOT NULL ORDER BY started LIMIT 100").fetchall()
+    rows = watcher.db.execute("""SELECT * FROM wd_analysis WHERE completed IS NOT NULL
+        AND (main_status IN ('pending','inflight','unknown')
+             OR (main_status='sent' AND notify_status='pending'))
+        ORDER BY CASE WHEN main_status IN ('pending','sent') THEN 0 ELSE 1 END, started LIMIT 100""").fetchall()
     for row in rows:
         marker = 'MAIL-ANALYSIS-' + row['incident']
         text = ('Разбор почтового инцидента ' + row['incident'] + '\n' + row['result'] +
@@ -239,7 +242,7 @@ def deliver(watcher, consumer=None, dispatch=False):
                 except Exception:
                     result = {'status': 'unknown'}
                 status = result.get('status')
-                if status == 'deferred':
+                if status in ('deferred', 'pending'):
                     status = 'pending'
                 elif status != 'sent' or not result.get('receipt'):
                     status = 'unknown' if status != 'rejected' else 'rejected'

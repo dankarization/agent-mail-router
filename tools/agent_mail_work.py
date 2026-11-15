@@ -392,28 +392,40 @@ def service(state, gateway, telegram, clock, allowed, policy_path=None):
                      encoded({"detail": "Receipt передачи MAIN не подтверждён. Автоповтора нет; требуется сверка существующей задачи."}), "pending"))
         with w.db:
             w.db.execute("BEGIN IMMEDIATE")
-            row = w.db.execute("SELECT o.*,t.owner,t.policy,t.mail_key,t.evidence,t.status AS task_status FROM work_outbox o JOIN work_tasks t ON t.id=o.task_id WHERE o.status='pending' ORDER BY o.rowid LIMIT 1").fetchone()
+            rows = w.db.execute("SELECT o.*,t.owner,t.policy,t.mail_key,t.evidence,t.status AS task_status FROM work_outbox o JOIN work_tasks t ON t.id=o.task_id WHERE o.status='pending' ORDER BY o.rowid")
+            row = None
+            held_reason = None
+            for candidate in rows:
+                if json.loads(candidate["policy"]) != p:
+                    held_reason = held_reason or "policy_changed"
+                    continue
+                if candidate["kind"] == "notify" and not allowed(clock()):
+                    held_reason = "quiet"
+                    continue
+                candidate_target = json.loads(candidate["evidence"]).get("target")
+                if candidate["kind"] == "owner":
+                    if not candidate_target or targets_at(state, p).get(candidate["owner"]) != candidate_target:
+                        held_reason = held_reason or "target_policy_held"
+                        continue
+                    from agent_mail_router import routes_at
+                    with closing(ro(Path(state) / "mail.sqlite3")) as mail:
+                        source = mail.execute("SELECT * FROM mail WHERE key=?", (candidate["mail_key"],)).fetchone()
+                    route = routes_at(Path(state) / "routes.json").get(source["route"]) if source else None
+                    if not route or route.get("intake_policy") == "external_report_only" or not eligible(json.loads(source["payload"]), source["reason"], route.get("paused", False), p):
+                        held_reason = held_reason or "source_policy_held"
+                        continue
+                row, target = candidate, candidate_target
+                break
             if not row:
-                return {"status": "empty"}
-            if json.loads(row["policy"]) != p:
-                return {"status": "policy_changed"}
-            target = json.loads(row["evidence"]).get("target")
-            if row["kind"] == "owner":
-                if not target or targets_at(state, p).get(row["owner"]) != target:
-                    return {"status": "target_policy_held"}
-                from agent_mail_router import routes_at
-                with closing(ro(Path(state) / "mail.sqlite3")) as mail:
-                    source = mail.execute("SELECT * FROM mail WHERE key=?", (row["mail_key"],)).fetchone()
-                route = routes_at(Path(state) / "routes.json").get(source["route"]) if source else None
-                if not route or route.get("intake_policy") == "external_report_only" or not eligible(json.loads(source["payload"]), source["reason"], route.get("paused", False), p):
-                    return {"status": "source_policy_held"}
-            if row["kind"] == "notify" and not allowed(clock()):
-                return {"status": "quiet"}
+                return {"status": held_reason or "empty"}
             if row["kind"] == "owner" and not thread_handoff_allowed(row["owner"]):
                 # Definite pre-send refusal. Not a lost ACK, so it must not become unknown.
                 w.db.execute("UPDATE work_outbox SET status='rejected',receipt=NULL WHERE id=? AND status='pending'", (row["id"],))
                 w.db.execute("INSERT OR IGNORE INTO work_events VALUES (?,?,?)",
                              (row["task_id"], "dispatch_failure:" + row["id"], "work_thread_target_forbidden"))
+                w.db.execute("INSERT OR IGNORE INTO work_outbox VALUES (?,?,?,?,?,?,NULL)",
+                             (digest([row["task_id"], "handoff_blocker"]), row["task_id"], "notify", "handoff_blocker",
+                              encoded({"detail": "Работа не начата: work_thread_target_forbidden. Требуется сверить маршрут существующей задачи."}), "pending"))
                 return {"status": "rejected", "kind": "owner", "task_id": row["task_id"],
                         "receipt": None, "error": "work_thread_target_forbidden"}
         # Validation cannot send and therefore precedes the durable intent.
@@ -456,7 +468,7 @@ def service(state, gateway, telegram, clock, allowed, policy_path=None):
                 text = ("<b>Grok · " + labels[row["phase"].split(":")[0]] + "</b>\nUID " + html.escape(row["mail_key"])
                         + "\n" + html.escape(json.loads(row["payload"])["detail"]) + "\nMAIL-WORK-" + row["id"])
                 result = telegram.send(notification(target) if target else p["blocked_notification"], text)
-                status = result.get("status") if result.get("status") in ("sent", "rejected", "deferred") else "unknown"
+                status = result.get("status") if result.get("status") in ("sent", "rejected", "deferred", "pending") else "unknown"
                 receipt = str(result["receipt"]) if status == "sent" and result.get("receipt") else None
                 if status == "sent" and not receipt:
                     status = "unknown"
