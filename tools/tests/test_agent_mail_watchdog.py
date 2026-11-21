@@ -229,6 +229,26 @@ class WatchdogTests(unittest.TestCase):
         self.w.observe(self.collect(),self.now+501)
         self.assertIsNotNone(self.w.observe(self.collect(),self.now+1401)['incidents'][0]['closed'])
 
+    def test_expected_held_semantic_queue_and_unresolved_alert_do_not_repeat(self):
+        self.baseline()
+        self.ledger.error('mail-service', 'watchdog_unresolved', now=self.now+1)
+        held = {'version':1,'status':'held','outcome':'semantic_processing_unavailable'}
+        with sqlite3.connect(self.state/'mail.sqlite3') as db:
+            db.execute('CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT)')
+            db.execute('INSERT INTO meta VALUES (?,?)', ('semantic_queue_v1:test', json.dumps(held)))
+        for offset in (302, 602, 902, 1202):
+            observed = self.collect(self.now+offset)
+            self.assertEqual(observed['errors'], [])
+            out = self.w.observe(observed, self.now+offset)
+            self.w.publish(self.ledger)
+            self.assertEqual(out['incidents'], [])
+        self.assertEqual(len(self.ledger.status()['errors']), 1)
+        self.assertEqual(self.ledger.status()['errors'][0]['code'], 'watchdog_unresolved')
+        self.assertEqual(self.ledger.status()['errors'][0]['occurrences'], 1)
+        with sqlite3.connect(self.state/'mail.sqlite3') as db:
+            self.assertEqual(json.loads(db.execute('SELECT value FROM meta WHERE key=?',
+                ('semantic_queue_v1:test',)).fetchone()[0]), held)
+
     def test_unknown_delivery_held_and_metadata_unchanged(self):
         with sqlite3.connect(self.state/'mail.sqlite3') as db:
             db.execute("INSERT INTO effects(id,kind,status,target,receipt) VALUES ('effect','notify','unknown','PRIVATE_TARGET','PRIVATE_RECEIPT')")

@@ -104,6 +104,11 @@ class HostTests(unittest.TestCase):
         self.assertEqual(self.run_host(cfg=cfg).error_code, 'classifier_source_changed')
         self.assertFalse(self.calls)
 
+    def test_config_pin_mismatch_is_rejected_before_classifier_exchange(self):
+        self.config.write_text('{"approved":false}')
+        self.assertEqual(self.run_host().error_code, 'classifier_source_changed')
+        self.assertFalse(self.calls)
+
     def test_agreed_minimal_manifest_does_not_require_inventory_or_tsconfig(self):
         self.write_manifest(lambda m: m.pop('symlinks'))
         cfg = replace(self.cfg, manifest_sha256=sha(self.manifest.read_bytes()))

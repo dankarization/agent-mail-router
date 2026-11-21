@@ -48,8 +48,17 @@ class PrivateStdioTests(unittest.TestCase):
              patch.object(transport.host,'_hash_file',return_value=('a'*64,1)), \
              patch.object(Path,'resolve',return_value=Path('/helper')), \
              patch.object(transport.host,'_exchange',return_value=b'{"messageId":"receipt"}') as run:
-            with self.assertRaises(transport.host._Changed): transport.call(self.cfg,'/helper','a'*64,'chat.inject',{})
+            with self.assertRaises(transport.GatewayPinnedStateChanged): transport.call(self.cfg,'/helper','a'*64,'chat.inject',{})
             self.assertEqual(run.call_count,1)
+
+    def test_initial_pinned_input_change_has_fixed_code_and_never_starts_cli(self):
+        with patch.object(transport.host,'_preflight',side_effect=transport.host._Changed()), \
+             patch.object(transport.host,'_hash_file',return_value=('a'*64,1)), \
+             patch.object(Path,'resolve',return_value=Path('/helper')), \
+             patch.object(transport.host,'_exchange') as run:
+            with self.assertRaises(transport.GatewayPinnedStateChanged):
+                transport.call(self.cfg,'/helper','a'*64,'sessions.list',{})
+            run.assert_not_called()
 
     @unittest.skipUnless(os.environ.get('MAIL_ROUTER_PROCESS_TESTS') == '1', 'opt-in subprocess test; strict gate forbids subprocess')
     def test_real_helper_uses_stdin_and_normal_cli_bootstrap(self):

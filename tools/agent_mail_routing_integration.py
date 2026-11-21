@@ -6,6 +6,7 @@ models, grants access, reserves a decision or creates an effect.
 """
 from collections import Counter
 from agent_mail_inbound import preflight
+from agent_mail_gateway_stdio import GatewayPinnedStateChanged
 
 MAX_MESSAGES = 100
 
@@ -150,6 +151,8 @@ def process_semantic_context(store, mail_key, scope_path, rpc, classifier, *, qu
             current = snapshot()
             return current is not None and current == (original, source)
         return deliver(store.db, scope_path, selected_catalog, source, options, decision, rpc, source_is_current)
+    except GatewayPinnedStateChanged:
+        return {'status': 'held', 'reason': 'gateway_pinned_state_changed'}
     except Exception:
         return {'status': 'held', 'reason': 'semantic_processing_unavailable'}
 
