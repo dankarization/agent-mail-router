@@ -62,3 +62,6 @@ plus fixed held-reason codes and an observation of the worker lock. A processing
 entry without an active lock is reported as interrupted; lock observations can
 race with a worker starting or stopping. Status never calls a model or Gateway. Counts are
 limited to 10,000 entries and report truncation.
+
+
+Classifier evidence is constrained to deterministic exact excerpts from the complete original body, each at most160UTF-8bytes without splitting code points. Both adapters offer those literal strings in the prompt and dynamic output-schema enum; the decoded body/catalog limits stay12KiB/20KiB. This adds bounded model-input metadata, not authority. The original raw response remains unchanged for the strict Python JSON, duplicate-key and exact-grounding validator. Paraphrases and case-changed quotations remain rejected; no output repair or case folding is performed.
