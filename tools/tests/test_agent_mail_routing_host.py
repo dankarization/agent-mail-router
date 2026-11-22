@@ -95,6 +95,39 @@ class HostTests(unittest.TestCase):
         self.assertGreater(work_ms, int(time.monotonic() * 1000))
         self.assertLessEqual(work_ms - int(time.monotonic() * 1000), 15000)
 
+    def test_serialized_envelope_accepts_escaped_wire_over_64k_and_rejects_over_192k(self):
+        payload = {'body': '\0' * 10500, 'candidates': [
+            {'candidateId': 'c_' + format(i, '032x'), 'agentId': 'main',
+             'title': 'x' * 100, 'purpose': 'test', 'aliases': []}
+            for i in range(77)]}
+        host_value = {'buildRoot': '/qa/release', 'expectedCommit': self.commit,
+                      'manifestPath': '/qa/manifest', 'manifestSha256': 'a' * 64,
+                      'configPath': '/qa/config', 'configSha256': 'b' * 64,
+                      'policyPath': '/qa/policy', 'policySha256': 'c' * 64,
+                      'agentId': 'main', 'wallTimeoutMs': 30000}
+        wire = host._serialize_envelope(host_value, payload)
+        self.assertGreater(len(wire), 65536)
+        self.assertLessEqual(len(wire), host._MAX_ENVELOPE_BYTES)
+        self.assertEqual(json.loads(wire)['payload']['body'], '\0' * 10500)
+        low, high = 0, host._MAX_ENVELOPE_BYTES
+        exact = None; exact_padding = None
+        while low <= high:
+            middle = (low + high) // 2
+            candidate = host._serialize_envelope(dict(host_value, operator_fixture='x' * middle), payload)
+            if candidate is not None and len(candidate) == host._MAX_ENVELOPE_BYTES:
+                exact = candidate; exact_padding = middle; break
+            if candidate is None: high = middle - 1
+            else: low = middle + 1
+        self.assertIsNotNone(exact)
+        too_large = dict(host_value, operator_fixture='x' * (exact_padding + 1))
+        self.assertIsNone(host._serialize_envelope(too_large, payload))
+
+    def test_oversize_serialized_envelope_defers_before_exchange(self):
+        with patch.object(host, '_serialize_envelope', return_value=None):
+            result = self.run_host()
+        self.assertEqual((result.status, result.error_code), ('deferred', 'classifier_input_invalid'))
+        self.assertFalse(self.calls)
+
     def test_old_manifest_and_modified_critical_file_rejected_before_spawn(self):
         self.write_manifest(lambda m: next(x for x in m['files'] if x['path'] == 'package.json').pop('sha256'))
         cfg = replace(self.cfg, manifest_sha256=sha(self.manifest.read_bytes()))
@@ -102,6 +135,11 @@ class HostTests(unittest.TestCase):
         self.write_manifest(); cfg = replace(self.cfg, manifest_sha256=sha(self.manifest.read_bytes()))
         (self.root / 'src/config/config.ts').write_text('changed')
         self.assertEqual(self.run_host(cfg=cfg).error_code, 'classifier_source_changed')
+        self.assertFalse(self.calls)
+
+    def test_config_pin_mismatch_is_rejected_before_classifier_exchange(self):
+        self.config.write_text('{"approved":false}')
+        self.assertEqual(self.run_host().error_code, 'classifier_source_changed')
         self.assertFalse(self.calls)
 
     def test_agreed_minimal_manifest_does_not_require_inventory_or_tsconfig(self):

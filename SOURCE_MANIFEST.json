@@ -15,23 +15,23 @@
     },
     {
       "path": "adapters/gateway-private-stdio.mjs",
-      "bytes": 970,
-      "sha256": "7ab26ca2ddd1292ecb3fb7fa49d489c9c0655d75beab060b68e291fbe333589e"
+      "bytes": 972,
+      "sha256": "1d13d9846f644bd4f3a08f4e011ebbd739b968310823a0711dc7ce2a29e1950d"
     },
     {
       "path": "adapters/openclaw-compiled-utility-r3.mts",
-      "bytes": 18668,
-      "sha256": "12ba684f4b40d2c8f01636549ee5d25a09b504965c64414e24dccd44fe17ec97"
+      "bytes": 20604,
+      "sha256": "55aa5aede3173917a836415676997af4a2644a0596792684f94db493f67bd2ce"
     },
     {
       "path": "adapters/openclaw-source-utility.mts",
-      "bytes": 17888,
-      "sha256": "02cd6bd744e4304e7fb003195162b1d62f1885605d25d8ac261a968f2560bd0a"
+      "bytes": 19824,
+      "sha256": "45c733dad7c14c1b6d5c10fa4ce19ab091dde7dfebfee10e2847036f877abb9c"
     },
     {
       "path": "adapters/tests/compiled-r3-diagnostic.test.mts",
-      "bytes": 5280,
-      "sha256": "07f8379c6851989460e184018fa4b2bd1e87e71e041f9e3b87b341a810ff1623"
+      "bytes": 5313,
+      "sha256": "8b18866ef23d85bcfd26a2594978aab6446a0eb2d2da67b948e723df1a4cd111"
     },
     {
       "path": "adapters/tests/cooperative-child.fixture.mts",
@@ -49,9 +49,14 @@
       "sha256": "2ce4156c5b592179639f2ac24e5f2a3510d035815603bbc0c2e712e69a19034a"
     },
     {
+      "path": "adapters/tests/evidence-choices.test.mts",
+      "bytes": 6068,
+      "sha256": "0048e860300dbc658a3a457f6b19c3bec2f1d337c7ba967b54ec645e353e9cb5"
+    },
+    {
       "path": "adapters/tests/openclaw-source-utility.test.mts",
-      "bytes": 7268,
-      "sha256": "804c71ce05bcf08a1e521a79775483661bb51e9a1eede80d77250dae5d56f2b9"
+      "bytes": 10465,
+      "sha256": "c5e0217b3e12769f9336b6d5982b47721510dad2d0104c8de60ad8c0c536fd62"
     },
     {
       "path": "docs/authorized-work.md",
@@ -85,8 +90,8 @@
     },
     {
       "path": "docs/semantic-routing.md",
-      "bytes": 3954,
-      "sha256": "3bce5123a4a087ea0a76a8f2d93ffaf9bc826a4b4796e6d54160892b9c7bc50e"
+      "bytes": 5830,
+      "sha256": "1c8aa7831eb858090e7b51cbeacbd26aedd27a2a26ba2686c6febe9f5437ecbb"
     },
     {
       "path": "docs/watchdog.md",
@@ -170,8 +175,8 @@
     },
     {
       "path": "tools/agent_mail_gateway_stdio.py",
-      "bytes": 1894,
-      "sha256": "d6c85399b97e39514f26850d65a25b6be692ffbc2b9f9d3f2991408f6c42da74"
+      "bytes": 2241,
+      "sha256": "f16a5766edeacf3f5aa560d66d570f0acbd7a2c0a5dc0a1925075c639dcb54c6"
     },
     {
       "path": "tools/agent_mail_inbound.py",
@@ -200,8 +205,8 @@
     },
     {
       "path": "tools/agent_mail_routing.py",
-      "bytes": 13615,
-      "sha256": "c9e13c9e7fdf1eb249cf9c33058b5955a398e468ea238e7e0a4c26d4e2bd6c01"
+      "bytes": 15588,
+      "sha256": "51442de2bac1a25821b4df955c61f78d23c11031e1beb6bda98d2ff4b1fceed9"
     },
     {
       "path": "tools/agent_mail_routing_catalog.py",
@@ -210,13 +215,13 @@
     },
     {
       "path": "tools/agent_mail_routing_host.py",
-      "bytes": 24270,
-      "sha256": "66ae02e4cfb4a1a4cc69df4a4b7fc11dfca99d3f5abb0994341c61b3445c801c"
+      "bytes": 24456,
+      "sha256": "a006de2380878057530220a2cb6b351662a3fbca6f061173236205e49b2f8023"
     },
     {
       "path": "tools/agent_mail_routing_integration.py",
-      "bytes": 18382,
-      "sha256": "d1571e033c22441b583cdf54845bab83a35d9bb1db985329fda57cdc265b2951"
+      "bytes": 18591,
+      "sha256": "380cb6b2eaad9ef71d54877cc430cb3b6dcc80bb7fe8062bdb6f0fd27658f8ab"
     },
     {
       "path": "tools/agent_mail_routing_ledger.py",
@@ -295,8 +300,8 @@
     },
     {
       "path": "tools/tests/test_agent_mail_gateway_stdio.py",
-      "bytes": 4616,
-      "sha256": "5f25352fca4839075eac0d886c3182ccadc7dd16ea9c37db51d40e5e7d9a149c"
+      "bytes": 7692,
+      "sha256": "b3da62e92d0fbce284766995d52cf3c5ba7e1443ab507eeb7ced4f1c9e172c88"
     },
     {
       "path": "tools/tests/test_agent_mail_inbound.py",
@@ -335,8 +340,8 @@
     },
     {
       "path": "tools/tests/test_agent_mail_routing.py",
-      "bytes": 12480,
-      "sha256": "0f6e77f875351eb6ec25333658ffbcbb75e65ea335a0602ed4dbd99b88920ff0"
+      "bytes": 20818,
+      "sha256": "523c1af282fb12e35135a60f6d632d9e9ae95a434713f077a1d347b822ddd10a"
     },
     {
       "path": "tools/tests/test_agent_mail_routing_catalog.py",
@@ -345,13 +350,13 @@
     },
     {
       "path": "tools/tests/test_agent_mail_routing_host.py",
-      "bytes": 18349,
-      "sha256": "1b57cec55c2e9529e53c3c407bbd46c4b8de4d06960559cee8d730674efbddc6"
+      "bytes": 20567,
+      "sha256": "73f427ef5dd141b0eaeb9481c90e585016b156446c6f88dcdef19f1c4cfc237e"
     },
     {
       "path": "tools/tests/test_agent_mail_routing_integration.py",
-      "bytes": 29152,
-      "sha256": "3db1c8a5a985a6e0e1585d580a76fcc5539a20aa4c7c4eb0f930e81e2563877a"
+      "bytes": 31282,
+      "sha256": "a06bb3565af748829103aaa8dfb7cdf1a14cbd105095482f385d327fe55765a6"
     },
     {
       "path": "tools/tests/test_agent_mail_routing_ledger.py",
@@ -375,8 +380,8 @@
     },
     {
       "path": "tools/tests/test_agent_mail_watchdog.py",
-      "bytes": 20889,
-      "sha256": "729a667249b67af5166123fef10f708f9278f0d3d383b0bb8e16bca302783fbb"
+      "bytes": 22165,
+      "sha256": "bf0992ed83c82d6b2a3c704ef832db0ebb2b2cb09f838090f074ec080350d8e1"
     },
     {
       "path": "tools/tests/test_agent_mail_work.py",

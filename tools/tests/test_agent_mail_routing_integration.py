@@ -10,6 +10,7 @@ import agent_mail_router as router
 import agent_mail_routing_integration as integration
 import agent_mail_routing as routing
 from agent_mail_routing_host import BridgeResult
+from agent_mail_gateway_stdio import GatewayPinnedStateChanged
 from unittest.mock import Mock
 from test_agent_mail_router import msg, snap, ROOT
 
@@ -38,6 +39,14 @@ class TestInboundObservation(unittest.TestCase):
         self.assertEqual(before, self.store.db.total_changes)
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM effects').fetchone()[0], 0)
         self.assertEqual(self.store.db.execute("SELECT count(*) FROM meta WHERE key LIKE 'semantic_%'").fetchone()[0], 0)
+
+    def test_queue_status_keeps_gateway_pinned_state_changed_as_fixed_reason(self):
+        record = {'version': 1, 'status': 'held', 'outcome': 'gateway_pinned_state_changed'}
+        self.store.db.execute('INSERT INTO meta(key,value) VALUES (?,?)',
+            (integration._QUEUE_PREFIX + 'synthetic', json.dumps(record)))
+        status = integration.queue_status(self.store.db)
+        self.assertEqual(status['counts']['held'], 1)
+        self.assertEqual(status['heldReasons'], {'gateway_pinned_state_changed': 1})
 
     def test_new_exact_binding_and_conflicts_stay_with_existing_routing(self):
         routes = [r for r in self.store.routes.values() if not r.get('fallback')]
@@ -173,6 +182,20 @@ if __name__ == '__main__':
     unittest.main()
 
 class TestSemanticProcessor(TestInboundObservation):
+    def test_processor_surfaces_pin_drift_and_stops_before_classify_or_delivery(self):
+        # Preload delivery while the catalog module is still unpatched; the
+        # module binds load_scope at import time.
+        import agent_mail_gateway_delivery
+        message = msg(1, 'Orchid telescope lens')
+        self.store.ingest(snap([message])); classifier = Mock()
+        with patch('agent_mail_gateway_catalog.load_scope', side_effect=GatewayPinnedStateChanged()), \
+             patch('agent_mail_gateway_catalog.collect') as collect, \
+             patch('agent_mail_gateway_delivery.deliver') as delivery:
+            result = integration.process_semantic_context(self.store, message['key'], '/synthetic', lambda *a: {}, classifier)
+        self.assertEqual(result, {'status':'held','reason':'gateway_pinned_state_changed'})
+        classifier.assert_not_called(); collect.assert_not_called(); delivery.assert_not_called()
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM meta WHERE key LIKE 'semantic_decision_v1:%'").fetchone()[0], 0)
+
     def test_processor_selects_then_delegates_fenced_passive_delivery(self):
         message = msg(1, 'Orchid telescope lens')
         self.store.ingest(snap([message])); cat = self.synthetic_catalog()
@@ -221,7 +244,7 @@ class TestSemanticProcessor(TestInboundObservation):
     def test_complete_synthetic_chain_uses_actual_catalog_and_delivery_journal(self):
         from test_agent_mail_gateway_catalog import CatalogTests
         fixture = CatalogTests(); fixture.setUp(); self.addCleanup(fixture.tearDown)
-        message = msg(1, 'WALT funding collection')
+        message = msg(1, 'Please help me contribute financially to the international track meet.')
         self.store.ingest(snap([message])); calls = []
         def rpc(method, params):
             calls.append((method, params))
@@ -231,8 +254,11 @@ class TestSemanticProcessor(TestInboundObservation):
                 return {'messageId':'synthetic-receipt'}
             raise AssertionError(method)
         def classify(source, options):
+            self.assertTrue(options.complete)
+            self.assertTrue(options.entries)
+            self.assertTrue(all(score == 0 for _, score in options.scores))
             return BridgeResult('ok', decision_raw=json.dumps({'candidateId':options.entries[0].candidate_id,
-                'confidence':'high', 'alternatives':[], 'evidence':['WALT funding'], 'reasonCode':'matched'}))
+                'confidence':'high', 'alternatives':[], 'evidence':['contribute financially to the international track meet'], 'reasonCode':'matched'}))
         classifier = Mock(side_effect=classify)
         result = integration.process_semantic_context(self.store, message['key'], fixture.path, rpc, classifier)
         self.assertEqual(result['status'], 'delivered')
@@ -242,6 +268,8 @@ class TestSemanticProcessor(TestInboundObservation):
         injections = [params for method, params in calls if method == 'chat.inject']
         self.assertEqual(len(injections), 1)
         self.assertEqual(injections[0]['sessionId'], 'incarnation-1')
+        self.assertEqual(injections[0]['sessionId'], fixture.row['sessionId'])
+        self.assertEqual(self.store.db.execute('SELECT route FROM mail WHERE key=?', (message['key'],)).fetchone()[0], 'general')
 
     def test_queued_before_batch_processes_after_batch_once(self):
         from test_agent_mail_gateway_catalog import CatalogTests
@@ -258,7 +286,7 @@ class TestSemanticProcessor(TestInboundObservation):
             raise AssertionError(method)
         def classify(source, options):
             return BridgeResult('ok', decision_raw=json.dumps({'candidateId':options.entries[0].candidate_id,
-                'confidence':'high', 'alternatives':[], 'evidence':['WALT funding'], 'reasonCode':'matched'}))
+                'confidence':'high', 'alternatives':[], 'evidence':['WALT funding collection'], 'reasonCode':'matched'}))
         classifier = Mock(side_effect=classify)
         result = integration.run_one_queued(self.store, fixture.path, rpc, classifier)
         self.assertEqual(result['status'], 'delivered'); self.assertFalse(result['taskStarted'])

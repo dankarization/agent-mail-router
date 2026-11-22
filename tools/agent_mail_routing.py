@@ -10,9 +10,10 @@ import re
 from typing import Protocol
 
 MAX_SESSIONS = 4096
-MAX_CANDIDATES = 32
+MAX_CANDIDATES = 128
 MAX_TEXT_BYTES = 12 * 1024
-MAX_CATALOG_BYTES = 12 * 1024
+MAX_CATALOG_BYTES = 20 * 1024
+MIN_SEMANTIC_EVIDENCE_CHARS = 16
 MAX_OUTPUT_BYTES = 4096
 _SELECTOR_VERSION = 'semantic-routing-v1'
 _ID = re.compile(r'c_[a-f0-9]{32}\Z')
@@ -39,6 +40,20 @@ def _text(value, limit):
 
 def _tokens(value):
     return set(re.findall(r'[^\W_]{3,}', value.casefold(), flags=re.UNICODE))
+
+
+# Grammatical connectors are not topic evidence for lexical ranking. Keep the
+# raw tokenizer unchanged for the separate exact-source grounding checks.
+_RANKING_STOPWORDS = frozenset({
+    'and', 'for', 'the', 'with', 'from', 'through', 'this', 'that',
+    'для', 'что', 'это', 'как', 'при', 'или', 'через', 'чтобы', 'также',
+    'есть', 'уже', 'еще', 'ещё', 'только', 'после', 'перед', 'между',
+    'без', 'под', 'над', 'про',
+})
+
+
+def _ranking_tokens(value):
+    return _tokens(value) - _RANKING_STOPWORDS
 
 
 @dataclass(frozen=True)
@@ -181,12 +196,13 @@ def shortlist(cat: Catalog, source: SelectionInput) -> Shortlist:
     if (source.exact_status != 'unbound' or source.delivery_state != 'new'
             or source.intake_reason not in _SEMANTIC_INTAKE):
         return Shortlist((), False, (), _source_digest(source))
-    words = _tokens(source.body)
+    words = _ranking_tokens(source.body)
     ranked = []
     for entry in cat.candidates:
-        score = len(words & _tokens(' '.join((entry.title, entry.purpose, *entry.aliases))))
-        if score:
-            ranked.append((score, entry))
+        score = len(words & _ranking_tokens(' '.join((entry.title, entry.purpose, *entry.aliases))))
+        # Keep every already-authorized candidate in the bounded catalog.
+        # A zero lexical score is not evidence that a semantic candidate is irrelevant.
+        ranked.append((score, entry))
     ranked.sort(key=lambda item: (-item[0], item[1].candidate_id))
     selected = []
     size = 2
@@ -274,12 +290,36 @@ def decide(source: SelectionInput, options: Shortlist, raw: str) -> Decision:
     if reason != 'matched' or confidence != 'high' or alternatives or not evidence:
         return _held('ambiguous', source)
     scores = dict(options.scores)
+    if cid not in scores:
+        return _held('invalid_output', source)
     selected = scores[cid]
-    # A close lexical competitor is not resolved by the model's self-reported confidence.
-    if selected <= 0 or any(selected - score <= 1 for other, score in options.scores if other != cid):
+    if selected < 0:
+        return _held('invalid_output', source)
+    competing = [score for other, score in options.scores if other != cid]
+    if selected == 0:
+        chosen = next(entry for entry in options.entries if entry.candidate_id == cid)
+        raw_overlap = _tokens(source.body) & _tokens(' '.join(
+            (chosen.title, chosen.purpose, *chosen.aliases)))
+        # Do not turn a formerly positive grammatical-only match into the
+        # intentional true-zero semantic override against a content competitor.
+        if raw_overlap and any(score > 0 for score in competing):
+            return _held('ambiguous', source)
+        semantic_override = True
+    elif any(score >= selected for score in competing):
         return _held('ambiguous', source)
-    if not any(_tokens(span) & _tokens(' '.join((entry.title, entry.purpose, *entry.aliases)))
-               for entry in options.entries if entry.candidate_id == cid for span in evidence):
+    elif any(selected - score == 1 for score in competing):
+        # Only a one-token lexical lead over zero-score candidates can be
+        # resolved semantically; positive close competitors remain ambiguous.
+        if selected != 1 or any(score != 0 for score in competing):
+            return _held('ambiguous', source)
+        semantic_override = True
+    else:
+        semantic_override = False
+    if semantic_override:
+        if not any(len(span.strip()) >= MIN_SEMANTIC_EVIDENCE_CHARS for span in evidence):
+            return _held('insufficient_evidence', source)
+    elif not any(_tokens(span) & _tokens(' '.join((entry.title, entry.purpose, *entry.aliases)))
+                 for entry in options.entries if entry.candidate_id == cid for span in evidence):
         return _held('insufficient_evidence', source)
     return Decision('selected', cid, 'matched', source.intake_reason, source.source_report_only)
 

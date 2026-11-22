@@ -31,6 +31,7 @@ _REQUIRED = {'package.json', 'dist/build-info.json', 'scripts/tsx.mjs',
 _HEX = re.compile(r'[a-f0-9]{64}\Z')
 _COMMIT = re.compile(r'[a-f0-9]{40}\Z')
 _MAX_MANIFEST = 64 * 1024 * 1024
+_MAX_ENVELOPE_BYTES = 192 * 1024
 _MAX_STDOUT = 8192
 
 
@@ -85,6 +86,12 @@ def _unique(pairs):
 def _json(raw):
     return json.loads(raw, object_pairs_hook=_unique,
                       parse_constant=lambda _: (_ for _ in ()).throw(ValueError('constant')))
+
+
+def _serialize_envelope(host_value, payload):
+    data = json.dumps({'version': 1, 'host': host_value, 'payload': payload},
+                      ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode('utf-8')
+    return data if len(data) <= _MAX_ENVELOPE_BYTES else None
 
 
 def _path(value):
@@ -466,9 +473,8 @@ def classify(cfg: TrustedHostConfig, source: SelectionInput, options: Shortlist,
                 'configPath': str(_path(cfg.config_path)), 'configSha256': cfg.config_sha256,
                 'policyPath': str(_path(cfg.policy_path)), 'policySha256': cfg.policy_sha256,
                 'agentId': cfg.agent_id, 'wallTimeoutMs': remaining}
-        data = json.dumps({'version': 1, 'host': host, 'payload': payload}, ensure_ascii=False,
-                          separators=(',', ':'), allow_nan=False).encode('utf-8')
-        if len(data) > 65536:
+        data = _serialize_envelope(host, payload)
+        if data is None:
             return BridgeResult('deferred', error_code='classifier_input_invalid')
         env = {k: os.environ[k] for k in ('HOME', 'PATH', 'LANG', 'LC_ALL', 'TMPDIR') if k in os.environ}
         env['OPENCLAW_CONFIG_PATH'] = host['configPath']

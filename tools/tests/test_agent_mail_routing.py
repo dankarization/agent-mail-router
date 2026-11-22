@@ -80,6 +80,95 @@ class RoutingContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError): r.model_input(source, options)
                 self.assertEqual(r.decide(source, options, '{}').reason, 'existing_binding_or_delivery')
 
+    def test_zero_overlap_full_catalog_allows_strong_semantic_selection(self):
+        body = 'Please help me contribute financially to the international track meet.'
+        source = replace(self.source, body=body)
+        cat = self.build([self.one])
+        options = r.shortlist(cat, source)
+        self.assertTrue(options.complete)
+        self.assertEqual(options.scores, ((options.entries[0].candidate_id, 0),))
+        self.assertFalse(r._tokens(body) & r._tokens(' '.join((self.one.title, self.one.purpose, *self.one.aliases))))
+        prompt = r.model_input(source, options)
+        self.assertTrue(prompt['catalogComplete'])
+        decision = r.decide(source, options, self.output(options.entries[0].candidate_id,
+            evidence=['contribute financially to the international track meet']))
+        self.assertEqual((decision.status, decision.candidate_id), ('selected', options.entries[0].candidate_id))
+
+    def test_zero_overlap_weak_or_competing_evidence_stays_held(self):
+        body = 'Please help me contribute financially to the international track meet.'
+        source = replace(self.source, body=body)
+        options = r.shortlist(self.build([self.one]), source)
+        cid = options.entries[0].candidate_id
+        self.assertEqual(r.decide(source, options, self.output(cid, evidence=['help'])).reason, 'insufficient_evidence')
+        competing = self.build([self.one, self.two])
+        lexical_source = replace(source, body=body + ' bridge network')
+        mixed = r.shortlist(competing, lexical_source)
+        zero_id = next(candidate_id for candidate_id, score in mixed.scores if score == 0)
+        positive_id = next(candidate_id for candidate_id, score in mixed.scores if score > 0)
+        self.assertEqual(r.decide(lexical_source, mixed,
+            self.output(zero_id, alternatives=[positive_id],
+                        evidence=['contribute financially to the international track meet'])).reason, 'ambiguous')
+
+    def test_zero_overlap_candidate_can_win_over_irrelevant_lexical_match(self):
+        body = ('Please help me contribute financially to the international track meet; '
+                'bridge network details are incidental.')
+        source = replace(self.source, body=body)
+        options = r.shortlist(self.build(), source)
+        scores = dict(options.scores)
+        semantic_id = next(cid for cid, score in scores.items() if score == 0)
+        self.assertGreater(max(scores.values()), 0)
+        decision = r.decide(source, options, self.output(semantic_id,
+            evidence=['contribute financially to the international track meet']))
+        self.assertEqual((decision.status, decision.candidate_id), ('selected', semantic_id))
+
+    def test_full_owner_catalog_over_32_candidates_fits_bounded_complete_contract(self):
+        records = [replace(self.one, session_key=f"agent:main:private:project-{n}",
+                           incarnation=f"inc-{n}", title=f"Project {n}",
+                           purpose=f"Authorized project {n}", aliases=()) for n in range(77)]
+        cat = self.build(records)
+        source = replace(self.source, body="A general question unrelated to project labels.")
+        options = r.shortlist(cat, source)
+        self.assertTrue(cat.complete); self.assertTrue(options.complete)
+        self.assertEqual(len(options.entries), 77)
+        self.assertEqual({x.candidate_id for x in options.entries}, {x.candidate_id for x in cat.candidates})
+        encoded = 2 + sum(len(r._canonical(x.public()).encode("utf-8")) + 1 for x in options.entries)
+        self.assertLessEqual(encoded, r.MAX_CATALOG_BYTES)
+        self.assertEqual(len(r.model_input(source, options)["candidates"]), 77)
+
+    def test_candidate_and_byte_overflow_stay_incomplete(self):
+        too_many = [replace(self.one, session_key=f"agent:main:private:n-{n}", incarnation=f"inc-{n}",
+                            title=f"Project {n}", purpose="Authorized") for n in range(r.MAX_CANDIDATES + 1)]
+        options = r.shortlist(self.build(too_many), self.source)
+        self.assertFalse(options.complete); self.assertEqual(len(options.entries), r.MAX_CANDIDATES)
+        with self.assertRaisesRegex(ValueError, "selection_not_admitted"):
+            r.model_input(self.source, options)
+        long_rows = [replace(self.one, session_key=f"agent:main:private:b-{n}", incarnation=f"binc-{n}",
+                             title=f"Project {n}", purpose="Authorized purpose", aliases=("x" * 240,))
+                     for n in range(100)]
+        oversized = r.shortlist(self.build(long_rows), self.source)
+        self.assertFalse(oversized.complete); self.assertLess(len(oversized.entries), len(long_rows))
+        with self.assertRaisesRegex(ValueError, "selection_not_admitted"):
+            r.model_input(self.source, oversized)
+
+    def test_one_token_lexical_lead_can_be_resolved_semantically(self):
+        semantic = replace(self.one, session_key="agent:main:private:semantic", title="Meet",
+                           purpose="Community gathering", aliases=())
+        decoy = replace(self.two, session_key="agent:main:private:decoy", title="Basketball",
+                        purpose="Local league", aliases=())
+        body = "Please help me contribute financially to the international track meet."
+        source = replace(self.source, body=body)
+        options = r.shortlist(self.build([semantic, decoy]), source)
+        scores = dict(options.scores)
+        semantic_id = next(cid for cid, score in scores.items() if score == 1)
+        decoy_id = next(cid for cid, score in scores.items() if score == 0)
+        quote = "contribute financially to the international track meet"
+        decision = r.decide(source, options, self.output(semantic_id, evidence=[quote]))
+        self.assertEqual((decision.status, decision.candidate_id), ("selected", semantic_id))
+        self.assertEqual(r.decide(source, options, self.output(semantic_id, evidence=["meet"])).reason,
+                         "insufficient_evidence")
+        self.assertEqual(r.decide(source, options, self.output(semantic_id, alternatives=[decoy_id],
+            evidence=[quote])).reason, "ambiguous")
+
     def test_valid_match_is_advisory_and_keeps_intake_and_report_only(self):
         source = replace(self.source, intake_reason='general_external_report', source_report_only=True)
         cat = self.build(); options = r.shortlist(cat, source); cid = options.entries[0].candidate_id
@@ -129,9 +218,10 @@ class RoutingContractTests(unittest.TestCase):
             options = r.shortlist(cat, source)
             with self.assertRaises(ValueError): r.model_input(source, options)
             self.assertEqual(r.decide(source, options, '{}').reason, 'incomplete_input')
-        many = [replace(self.one, session_key=f'private:{n}', incarnation=f'inc:{n}') for n in range(33)]
+        many = [replace(self.one, session_key=f"private:{n}", incarnation=f"inc:{n}")
+                for n in range(r.MAX_CANDIDATES + 1)]
         options = r.shortlist(self.build(many), self.source)
-        self.assertEqual(len(options.entries), 32); self.assertFalse(options.complete)
+        self.assertEqual(len(options.entries), r.MAX_CANDIDATES); self.assertFalse(options.complete)
         with self.assertRaises(ValueError): r.model_input(self.source, options)
 
     def test_limits_and_invalid_host_assertions_fail_closed(self):
@@ -176,6 +266,41 @@ class RoutingContractTests(unittest.TestCase):
         options = r.shortlist(self.build(), source); prompt = r.model_input(source, options)
         self.assertEqual({x['candidateId'] for x in prompt['candidates']}, {x.candidate_id for x in options.entries})
         self.assertEqual(r.decide(source, options, self.output('c_'+'0'*32)).status, 'held')
+
+
+    def ranking_case(self, body, vpn_title='Доступ к поддомену через VPN'):
+        email = replace(self.one, title='eMail', purpose='eMail', aliases=())
+        vpn = replace(self.two, title=vpn_title, purpose=vpn_title, aliases=())
+        source = replace(self.source, body=body)
+        cat = self.build([email, vpn])
+        options = r.shortlist(cat, source)
+        ids = {c.title: c.candidate_id for c in options.entries}
+        return source, options, ids['eMail'], ids[vpn_title]
+
+    def test_russian_function_word_does_not_tie_unrelated_vpn_to_email(self):
+        source, options, email, vpn = self.ranking_case('email через IMAP: incoming mailbox report')
+        self.assertEqual(dict(options.scores), {email: 1, vpn: 0})
+        decision = r.decide(source, options, self.output(email, evidence=['email через IMAP']))
+        self.assertEqual((decision.status, decision.candidate_id), ('selected', email))
+
+    def test_english_function_word_does_not_tie_unrelated_vpn_to_email(self):
+        source, options, email, vpn = self.ranking_case(
+            'email through IMAP: incoming mailbox report', 'Connectivity through VPN')
+        self.assertEqual(dict(options.scores), {email: 1, vpn: 0})
+        self.assertEqual(r.decide(source, options,
+            self.output(email, evidence=['email through IMAP'])).status, 'selected')
+
+    def test_real_content_competitor_remains_ambiguous(self):
+        source, options, email, vpn = self.ranking_case('email and VPN: incoming mailbox report')
+        self.assertEqual(dict(options.scores), {email: 1, vpn: 1})
+        self.assertEqual(r.decide(source, options,
+            self.output(email, evidence=['email and VPN'])).reason, 'ambiguous')
+
+    def test_filtered_grammatical_match_cannot_gain_true_zero_override(self):
+        source, options, email, vpn = self.ranking_case('email через IMAP: incoming mailbox report')
+        self.assertEqual(dict(options.scores), {email: 1, vpn: 0})
+        self.assertEqual(r.decide(source, options,
+            self.output(vpn, evidence=['email через IMAP'])).reason, 'ambiguous')
 
 
 if __name__ == '__main__':

@@ -6,7 +6,7 @@ try {
   const root=process.argv[2];
   if(!root || process.argv.length!==3) throw Error('input');
   let size=0;const chunks=[];
-  for await(const chunk of process.stdin){size+=chunk.length;if(size>32768)throw Error('input');chunks.push(chunk)}
+  for await(const chunk of process.stdin){size+=chunk.length;if(size>96*1024)throw Error('input');chunks.push(chunk)}
   const input=JSON.parse(Buffer.concat(chunks).toString('utf8'));
   if(!input || !['sessions.list','chat.inject'].includes(input.method) || !input.params || typeof input.params!=='object' || Array.isArray(input.params))throw Error('input');
   const entry=resolve(root,'dist/index.js');

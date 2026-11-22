@@ -6,6 +6,7 @@ models, grants access, reserves a decision or creates an effect.
 """
 from collections import Counter
 from agent_mail_inbound import preflight
+from agent_mail_gateway_stdio import GatewayPinnedStateChanged
 
 MAX_MESSAGES = 100
 
@@ -150,6 +151,8 @@ def process_semantic_context(store, mail_key, scope_path, rpc, classifier, *, qu
             current = snapshot()
             return current is not None and current == (original, source)
         return deliver(store.db, scope_path, selected_catalog, source, options, decision, rpc, source_is_current)
+    except GatewayPinnedStateChanged:
+        return {'status': 'held', 'reason': 'gateway_pinned_state_changed'}
     except Exception:
         return {'status': 'held', 'reason': 'semantic_processing_unavailable'}
 
@@ -326,7 +329,7 @@ def queue_status(db):
                'classifier_did_not_select', 'scope_or_source_changed', 'destination_catalog_changed',
                'destination_changed', 'source_changed_during_admission', 'previous_delivery_outcome',
                'delivery_outcome_unknown', 'delivery_receipt_unknown', 'semantic_processing_unavailable',
-               'queue_claim_changed', 'queue_finalization_unknown'}
+               'queue_claim_changed', 'queue_finalization_unknown', 'gateway_pinned_state_changed'}
     counts=Counter(); reasons=Counter()
     rows=db.execute('SELECT value FROM meta WHERE key LIKE ? ORDER BY key LIMIT 10001',
                     (_QUEUE_PREFIX+'%',)).fetchall()
