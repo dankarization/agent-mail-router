@@ -68,3 +68,6 @@ Classifier evidence is constrained to deterministic exact excerpts from the comp
 
 
 Lexical ranking ignores a bounded set of Russian/English grammatical connectors (for example, через/through). The original body and grounding tokenizer stay unchanged. Content-word ties remain held. A grammatical-only match filtered to zero cannot newly override a positive content competitor; the existing true-zero semantic control remains. Selector/cache versions, message admission gates and delivery journals are unchanged. Existing cached/held/unknown items are not reset or replayed by this update.
+
+
+Evidence chunks prefer token boundaries so a bounded grounding word crossing a160-byte cut remains available whole. Original order and complete-body coverage are preserved; byte/code-point limits remain unchanged. A single token longer than160UTF-8bytes cannot fit under the existing evidence contract and is not made admissible by this change.

@@ -20,13 +20,13 @@
     },
     {
       "path": "adapters/openclaw-compiled-utility-r3.mts",
-      "bytes": 20076,
-      "sha256": "3ebd730842e067f235df19fc30a8d401fd44b59e700645b4fd7f52db67de5d53"
+      "bytes": 20604,
+      "sha256": "55aa5aede3173917a836415676997af4a2644a0596792684f94db493f67bd2ce"
     },
     {
       "path": "adapters/openclaw-source-utility.mts",
-      "bytes": 19296,
-      "sha256": "b70dd419cb9e30df5ab265587a6095eddef20dd0843a43b1c735d36a0ad30e52"
+      "bytes": 19824,
+      "sha256": "45c733dad7c14c1b6d5c10fa4ce19ab091dde7dfebfee10e2847036f877abb9c"
     },
     {
       "path": "adapters/tests/compiled-r3-diagnostic.test.mts",
@@ -50,8 +50,8 @@
     },
     {
       "path": "adapters/tests/evidence-choices.test.mts",
-      "bytes": 4042,
-      "sha256": "e6aa4283a3ad1e6744c74a497a138094045aa94b6783b20b266b15f1347c6033"
+      "bytes": 6068,
+      "sha256": "0048e860300dbc658a3a457f6b19c3bec2f1d337c7ba967b54ec645e353e9cb5"
     },
     {
       "path": "adapters/tests/openclaw-source-utility.test.mts",
@@ -90,8 +90,8 @@
     },
     {
       "path": "docs/semantic-routing.md",
-      "bytes": 5483,
-      "sha256": "95c0f2228d5aabd27c6de747d76a8e3062d3bc6127a14d5b35a6a12595169261"
+      "bytes": 5830,
+      "sha256": "1c8aa7831eb858090e7b51cbeacbd26aedd27a2a26ba2686c6febe9f5437ecbb"
     },
     {
       "path": "docs/watchdog.md",

@@ -1,5 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import * as source from '../openclaw-source-utility.mts';
 import * as compiled from '../openclaw-compiled-utility-r3.mts';
 
@@ -25,6 +27,36 @@ for (const adapter of [source,compiled]) {
    assert(offered.every(x=>/[^\p{White_Space}\u001c-\u001f]/u.test(x)));
    assert(offered.some(x=>x.includes('REAL source excerpt')));
   }
+ });
+ test('grounding words remain whole across the UTF-8 boundary',()=>{
+  for (const word of ['budget','бюджет','予算計画']) {
+   const input='A '.repeat(78)+' '+word+' review requested.';
+   const choices=adapter.evidenceChoices(input);
+   assert.equal(choices.join(''),input);
+   assert(choices.every(x=>Buffer.byteLength(x,'utf8')<=160));
+   assert(choices.some(x=>x.includes(word)));
+  }
+ });
+ test('offered boundary quote passes the real Python grounding owner',()=>{
+  const input='A '.repeat(78)+' budget review requested.';
+  const code=`import sys,json,re
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+import agent_mail_routing as r
+x=json.load(sys.stdin)
+scope=r.RoutingScope('owner-a','mail-a',('main',),(),'policy-1')
+fact=r.SessionFact('agent:main:private:budget','inc-1','owner-a','mail-a','main','private','Budget','Budget',(),True,True,True,False,False,False,False,False,False,False)
+cat=r.catalog(scope,(fact,),revision='catalog-1',pages_complete=True)
+source=r.SelectionInput('fixture-boundary','general_fallback',False,'unbound','new',x['body'],True)
+options=r.shortlist(cat,source)
+base={'candidateId':options.entries[0].candidate_id,'confidence':'high','alternatives':[],'reasonCode':'matched'}
+quote=next((q for q in x['choices'] if re.search(r'\\bbudget\\b',q)),None)
+positive=r.decide(source,options,json.dumps(dict(base,evidence=[quote] if quote else [])))
+negative=r.decide(source,options,json.dumps(dict(base,evidence=[x['body'][:160],x['body'][160:]])))
+print(json.dumps({'positive':positive.status,'oldSplit':negative.reason}))`;
+  const result=spawnSync('python3',['-c',code,fileURLToPath(new URL('../../tools/',import.meta.url))],{input:JSON.stringify({body:input,choices:adapter.evidenceChoices(input)}),encoding:'utf8',timeout:10000});
+  assert.equal(result.status,0,result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout),{positive:'selected',oldSplit:'insufficient_evidence'});
  });
  test('long multibyte source is bounded and covers the final code point',()=>{
   const s='А'.repeat(6143)+'z';const list=adapter.evidenceChoices(s);

@@ -21,14 +21,23 @@ const SCHEMA = {type:'object',additionalProperties:false,required:['candidateId'
 // Choices cover the complete original body without breaking a Unicode code point.
 // The byte bound matches the host's strict UTF-8 evidence limit.
 export function evidenceChoices(body: string): string[] {
-  const choices: string[] = [];
-  let current = '', size = 0;
-  for (const point of body) {
-    const length = Buffer.byteLength(point, 'utf8');
-    if (size + length > 160) { choices.push(current); current = ''; size = 0; }
-    current += point; size += length;
+  const choices: string[] = [], points = [...body];
+  const token = (point: string) => /[\p{L}\p{N}]/u.test(point);
+  let start = 0;
+  while (start < points.length) {
+    let end = start, size = 0;
+    while (end < points.length && size + Buffer.byteLength(points[end], 'utf8') <= 160) {
+      size += Buffer.byteLength(points[end], 'utf8'); end++;
+    }
+    if (end < points.length && token(points[end - 1]) && token(points[end])) {
+      let boundary = end;
+      while (boundary > start && token(points[boundary - 1]) && token(points[boundary])) boundary--;
+      // A single token longer than the existing evidence limit cannot fit;
+      // retain complete body coverage without increasing that byte budget.
+      if (boundary > start) end = boundary;
+    }
+    choices.push(points.slice(start, end).join('')); start = end;
   }
-  if (current) choices.push(current);
   return choices;
 }
 const usableEvidence = (value: string) => /[^\p{White_Space}\u001c-\u001f]/u.test(value);
