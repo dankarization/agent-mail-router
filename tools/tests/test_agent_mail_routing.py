@@ -268,5 +268,40 @@ class RoutingContractTests(unittest.TestCase):
         self.assertEqual(r.decide(source, options, self.output('c_'+'0'*32)).status, 'held')
 
 
+    def ranking_case(self, body, vpn_title='Доступ к поддомену через VPN'):
+        email = replace(self.one, title='eMail', purpose='eMail', aliases=())
+        vpn = replace(self.two, title=vpn_title, purpose=vpn_title, aliases=())
+        source = replace(self.source, body=body)
+        cat = self.build([email, vpn])
+        options = r.shortlist(cat, source)
+        ids = {c.title: c.candidate_id for c in options.entries}
+        return source, options, ids['eMail'], ids[vpn_title]
+
+    def test_russian_function_word_does_not_tie_unrelated_vpn_to_email(self):
+        source, options, email, vpn = self.ranking_case('email через IMAP: incoming mailbox report')
+        self.assertEqual(dict(options.scores), {email: 1, vpn: 0})
+        decision = r.decide(source, options, self.output(email, evidence=['email через IMAP']))
+        self.assertEqual((decision.status, decision.candidate_id), ('selected', email))
+
+    def test_english_function_word_does_not_tie_unrelated_vpn_to_email(self):
+        source, options, email, vpn = self.ranking_case(
+            'email through IMAP: incoming mailbox report', 'Connectivity through VPN')
+        self.assertEqual(dict(options.scores), {email: 1, vpn: 0})
+        self.assertEqual(r.decide(source, options,
+            self.output(email, evidence=['email through IMAP'])).status, 'selected')
+
+    def test_real_content_competitor_remains_ambiguous(self):
+        source, options, email, vpn = self.ranking_case('email and VPN: incoming mailbox report')
+        self.assertEqual(dict(options.scores), {email: 1, vpn: 1})
+        self.assertEqual(r.decide(source, options,
+            self.output(email, evidence=['email and VPN'])).reason, 'ambiguous')
+
+    def test_filtered_grammatical_match_cannot_gain_true_zero_override(self):
+        source, options, email, vpn = self.ranking_case('email через IMAP: incoming mailbox report')
+        self.assertEqual(dict(options.scores), {email: 1, vpn: 0})
+        self.assertEqual(r.decide(source, options,
+            self.output(vpn, evidence=['email через IMAP'])).reason, 'ambiguous')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -42,6 +42,20 @@ def _tokens(value):
     return set(re.findall(r'[^\W_]{3,}', value.casefold(), flags=re.UNICODE))
 
 
+# Grammatical connectors are not topic evidence for lexical ranking. Keep the
+# raw tokenizer unchanged for the separate exact-source grounding checks.
+_RANKING_STOPWORDS = frozenset({
+    'and', 'for', 'the', 'with', 'from', 'through', 'this', 'that',
+    'для', 'что', 'это', 'как', 'при', 'или', 'через', 'чтобы', 'также',
+    'есть', 'уже', 'еще', 'ещё', 'только', 'после', 'перед', 'между',
+    'без', 'под', 'над', 'про',
+})
+
+
+def _ranking_tokens(value):
+    return _tokens(value) - _RANKING_STOPWORDS
+
+
 @dataclass(frozen=True)
 class RoutingScope:
     """Operator-owned scope; values must come from the trusted host, not mail."""
@@ -182,10 +196,10 @@ def shortlist(cat: Catalog, source: SelectionInput) -> Shortlist:
     if (source.exact_status != 'unbound' or source.delivery_state != 'new'
             or source.intake_reason not in _SEMANTIC_INTAKE):
         return Shortlist((), False, (), _source_digest(source))
-    words = _tokens(source.body)
+    words = _ranking_tokens(source.body)
     ranked = []
     for entry in cat.candidates:
-        score = len(words & _tokens(' '.join((entry.title, entry.purpose, *entry.aliases))))
+        score = len(words & _ranking_tokens(' '.join((entry.title, entry.purpose, *entry.aliases))))
         # Keep every already-authorized candidate in the bounded catalog.
         # A zero lexical score is not evidence that a semantic candidate is irrelevant.
         ranked.append((score, entry))
@@ -283,6 +297,13 @@ def decide(source: SelectionInput, options: Shortlist, raw: str) -> Decision:
         return _held('invalid_output', source)
     competing = [score for other, score in options.scores if other != cid]
     if selected == 0:
+        chosen = next(entry for entry in options.entries if entry.candidate_id == cid)
+        raw_overlap = _tokens(source.body) & _tokens(' '.join(
+            (chosen.title, chosen.purpose, *chosen.aliases)))
+        # Do not turn a formerly positive grammatical-only match into the
+        # intentional true-zero semantic override against a content competitor.
+        if raw_overlap and any(score > 0 for score in competing):
+            return _held('ambiguous', source)
         semantic_override = True
     elif any(score >= selected for score in competing):
         return _held('ambiguous', source)

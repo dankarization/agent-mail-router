@@ -65,3 +65,6 @@ limited to 10,000 entries and report truncation.
 
 
 Classifier evidence is constrained to deterministic exact excerpts from the complete original body, each at most160UTF-8bytes without splitting code points. Both adapters offer those literal strings in the prompt and dynamic output-schema enum; the decoded body/catalog limits stay12KiB/20KiB. This adds bounded model-input metadata, not authority. The original raw response remains unchanged for the strict Python JSON, duplicate-key and exact-grounding validator. Paraphrases and case-changed quotations remain rejected; no output repair or case folding is performed.
+
+
+Lexical ranking ignores a bounded set of Russian/English grammatical connectors (for example, через/through). The original body and grounding tokenizer stay unchanged. Content-word ties remain held. A grammatical-only match filtered to zero cannot newly override a positive content competitor; the existing true-zero semantic control remains. Selector/cache versions, message admission gates and delivery journals are unchanged. Existing cached/held/unknown items are not reset or replayed by this update.
