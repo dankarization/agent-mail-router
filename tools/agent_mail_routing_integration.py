@@ -329,7 +329,7 @@ def queue_status(db):
                'classifier_did_not_select', 'scope_or_source_changed', 'destination_catalog_changed',
                'destination_changed', 'source_changed_during_admission', 'previous_delivery_outcome',
                'delivery_outcome_unknown', 'delivery_receipt_unknown', 'semantic_processing_unavailable',
-               'queue_claim_changed', 'queue_finalization_unknown'}
+               'queue_claim_changed', 'queue_finalization_unknown', 'gateway_pinned_state_changed'}
     counts=Counter(); reasons=Counter()
     rows=db.execute('SELECT value FROM meta WHERE key LIKE ? ORDER BY key LIMIT 10001',
                     (_QUEUE_PREFIX+'%',)).fetchall()

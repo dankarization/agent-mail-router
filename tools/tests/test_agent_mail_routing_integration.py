@@ -40,6 +40,14 @@ class TestInboundObservation(unittest.TestCase):
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM effects').fetchone()[0], 0)
         self.assertEqual(self.store.db.execute("SELECT count(*) FROM meta WHERE key LIKE 'semantic_%'").fetchone()[0], 0)
 
+    def test_queue_status_keeps_gateway_pinned_state_changed_as_fixed_reason(self):
+        record = {'version': 1, 'status': 'held', 'outcome': 'gateway_pinned_state_changed'}
+        self.store.db.execute('INSERT INTO meta(key,value) VALUES (?,?)',
+            (integration._QUEUE_PREFIX + 'synthetic', json.dumps(record)))
+        status = integration.queue_status(self.store.db)
+        self.assertEqual(status['counts']['held'], 1)
+        self.assertEqual(status['heldReasons'], {'gateway_pinned_state_changed': 1})
+
     def test_new_exact_binding_and_conflicts_stay_with_existing_routing(self):
         routes = [r for r in self.store.routes.values() if not r.get('fallback')]
         with self.store.db:

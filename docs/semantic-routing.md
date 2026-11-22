@@ -25,6 +25,9 @@ account, allowed agents and direct user. Group destinations require exact
 operator grants. Archived, paused, child, background, cron and foreign sessions
 are excluded. The model sees bounded untrusted mail text and up to 128 eligible
 metadata descriptions with opaque IDs, subject to a 20 KiB serialized-catalog cap.
+The letter body remains limited to 12 KiB. Private JSON transport permits 192 KiB
+for the classifier envelope and 96 KiB for Gateway RPC, including JSON escaping;
+these wire bounds do not increase the model input limits or grant authority.
 If either bound would omit an authorized candidate, the catalog is incomplete and
 selection is held; the router never labels a truncated candidate set complete. Its
 JSON response must select one of those IDs with high confidence and provide

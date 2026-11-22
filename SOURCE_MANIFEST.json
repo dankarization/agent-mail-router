@@ -15,23 +15,23 @@
     },
     {
       "path": "adapters/gateway-private-stdio.mjs",
-      "bytes": 970,
-      "sha256": "7ab26ca2ddd1292ecb3fb7fa49d489c9c0655d75beab060b68e291fbe333589e"
+      "bytes": 972,
+      "sha256": "1d13d9846f644bd4f3a08f4e011ebbd739b968310823a0711dc7ce2a29e1950d"
     },
     {
       "path": "adapters/openclaw-compiled-utility-r3.mts",
-      "bytes": 18668,
-      "sha256": "12ba684f4b40d2c8f01636549ee5d25a09b504965c64414e24dccd44fe17ec97"
+      "bytes": 18947,
+      "sha256": "3e236c076f0e8c797fb62e0b8ff73c3600de35d4147a48d224d6b982c59413a5"
     },
     {
       "path": "adapters/openclaw-source-utility.mts",
-      "bytes": 17888,
-      "sha256": "02cd6bd744e4304e7fb003195162b1d62f1885605d25d8ac261a968f2560bd0a"
+      "bytes": 18167,
+      "sha256": "cf167ea7ac1a16f9761c5d6f1efec7c6afb93123b103448744cd69e2febb78b3"
     },
     {
       "path": "adapters/tests/compiled-r3-diagnostic.test.mts",
-      "bytes": 5280,
-      "sha256": "07f8379c6851989460e184018fa4b2bd1e87e71e041f9e3b87b341a810ff1623"
+      "bytes": 5313,
+      "sha256": "8b18866ef23d85bcfd26a2594978aab6446a0eb2d2da67b948e723df1a4cd111"
     },
     {
       "path": "adapters/tests/cooperative-child.fixture.mts",
@@ -50,8 +50,8 @@
     },
     {
       "path": "adapters/tests/openclaw-source-utility.test.mts",
-      "bytes": 7268,
-      "sha256": "804c71ce05bcf08a1e521a79775483661bb51e9a1eede80d77250dae5d56f2b9"
+      "bytes": 10465,
+      "sha256": "c5e0217b3e12769f9336b6d5982b47721510dad2d0104c8de60ad8c0c536fd62"
     },
     {
       "path": "docs/authorized-work.md",
@@ -85,8 +85,8 @@
     },
     {
       "path": "docs/semantic-routing.md",
-      "bytes": 4158,
-      "sha256": "9b1010f7bd531403d03db5b0919421f79c5e1b85e436cbe30854cbb913814cdb"
+      "bytes": 4398,
+      "sha256": "da77e7c7345e544090d3c452f49cb10d4da76fb23ce68da415ba857d9a4c0025"
     },
     {
       "path": "docs/watchdog.md",
@@ -170,8 +170,8 @@
     },
     {
       "path": "tools/agent_mail_gateway_stdio.py",
-      "bytes": 2185,
-      "sha256": "d2f3c24278c5121f7bb7055c2cf7dea0117d18b5e6411e421960a769d1c9a3ce"
+      "bytes": 2241,
+      "sha256": "f16a5766edeacf3f5aa560d66d570f0acbd7a2c0a5dc0a1925075c639dcb54c6"
     },
     {
       "path": "tools/agent_mail_inbound.py",
@@ -210,13 +210,13 @@
     },
     {
       "path": "tools/agent_mail_routing_host.py",
-      "bytes": 24270,
-      "sha256": "66ae02e4cfb4a1a4cc69df4a4b7fc11dfca99d3f5abb0994341c61b3445c801c"
+      "bytes": 24456,
+      "sha256": "a006de2380878057530220a2cb6b351662a3fbca6f061173236205e49b2f8023"
     },
     {
       "path": "tools/agent_mail_routing_integration.py",
-      "bytes": 18559,
-      "sha256": "1d27ede64082e4f62b814d004d900851e904e4a48ed3b35e5b8cdc289603efca"
+      "bytes": 18591,
+      "sha256": "380cb6b2eaad9ef71d54877cc430cb3b6dcc80bb7fe8062bdb6f0fd27658f8ab"
     },
     {
       "path": "tools/agent_mail_routing_ledger.py",
@@ -295,8 +295,8 @@
     },
     {
       "path": "tools/tests/test_agent_mail_gateway_stdio.py",
-      "bytes": 5213,
-      "sha256": "4b4e60ec9fac3109abc42ffea6eb5c35e7f75630b0c9ca4539396e9e171dc8bc"
+      "bytes": 7692,
+      "sha256": "b3da62e92d0fbce284766995d52cf3c5ba7e1443ab507eeb7ced4f1c9e172c88"
     },
     {
       "path": "tools/tests/test_agent_mail_inbound.py",
@@ -345,13 +345,13 @@
     },
     {
       "path": "tools/tests/test_agent_mail_routing_host.py",
-      "bytes": 18601,
-      "sha256": "5bd4035dd695faa283474b79cfb389f1a22bf9ed1c6f72c3c6d8f419316b12c2"
+      "bytes": 20567,
+      "sha256": "73f427ef5dd141b0eaeb9481c90e585016b156446c6f88dcdef19f1c4cfc237e"
     },
     {
       "path": "tools/tests/test_agent_mail_routing_integration.py",
-      "bytes": 30759,
-      "sha256": "171403f0f1cf4809b3d5f63226d658cf5a6295bd97470bd86730315e9e9c0a60"
+      "bytes": 31282,
+      "sha256": "a06bb3565af748829103aaa8dfb7cdf1a14cbd105095482f385d327fe55765a6"
     },
     {
       "path": "tools/tests/test_agent_mail_routing_ledger.py",

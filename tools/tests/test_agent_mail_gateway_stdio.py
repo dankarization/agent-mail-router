@@ -29,6 +29,24 @@ class PrivateStdioTests(unittest.TestCase):
         self.assertTrue(captured['kwargs']['_validate_output'](b'{"ok":true}'))
         self.assertFalse(captured['kwargs']['_validate_output'](b'not-json'))
 
+    def test_escaped_12k_body_fits_96k_python_gateway_wire_and_oversize_is_rejected(self):
+        captured={}
+        def exchange(argv,cwd,env,payload,end,**kwargs):
+            captured['payload']=payload
+            return b'{"messageId":"receipt"}'
+        body='\0'*12000
+        with patch.object(transport.host,'_preflight'), patch.object(transport.host,'_hash_file',return_value=('a'*64,1)), \
+             patch.object(Path,'resolve',return_value=Path('/helper')), patch.object(transport.host,'_exchange',side_effect=exchange):
+            self.assertEqual(transport.call(self.cfg,'/helper','a'*64,'chat.inject',{'message':body}),{'messageId':'receipt'})
+            self.assertGreater(len(captured['payload']),32768)
+            self.assertLessEqual(len(captured['payload']),transport.MAX_GATEWAY_INPUT_BYTES)
+            self.assertEqual(json.loads(captured['payload'])['params']['message'],body)
+        with patch.object(transport.host,'_preflight'), patch.object(transport.host,'_hash_file',return_value=('a'*64,1)), \
+             patch.object(Path,'resolve',return_value=Path('/helper')), patch.object(transport.host,'_exchange') as run:
+            with self.assertRaisesRegex(ValueError,'gateway_input_too_large'):
+                transport.call(self.cfg,'/helper','a'*64,'chat.inject',{'message':'x'*(96*1024)})
+            run.assert_not_called()
+
     def test_only_two_methods_and_changed_helper_are_rejected(self):
         with self.assertRaises(ValueError): transport.call(None,'/helper','a'*64,'agent',{})
         with patch.object(transport.host,'_preflight'), patch.object(transport.host,'_hash_file',return_value=('b'*64,1)), \
@@ -68,10 +86,20 @@ class PrivateStdioTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);dist=root/'dist';dist.mkdir()
             (root/'package.json').write_text('{"type":"module"}')
-            (dist/'index.js').write_text("import {readFileSync} from 'node:fs';const args=process.argv;const raw=readFileSync('/proc/self/cmdline','utf8');if(args[2]!=='gateway'||args[3]!=='call'||args[4]!=='chat.inject'||JSON.parse(args[6]).message!=='synthetic-secret'||raw.includes('synthetic-secret'))process.exit(1);console.log(JSON.stringify({messageId:'receipt'}));")
+            (dist/'index.js').write_text("import {readFileSync} from 'node:fs';const args=process.argv;let raw='';try{raw=readFileSync('/proc/self/cmdline','utf8')}catch{}const message=JSON.parse(args[6]).message;const allowed=message==='synthetic-secret'||message==='x'||(typeof message==='string'&&message.length===12000&&message.charCodeAt(0)===0);if(args[2]!=='gateway'||args[3]!=='call'||args[4]!=='chat.inject'||!allowed||raw.includes('synthetic-secret'))process.exit(1);console.log(JSON.stringify({messageId:'receipt'}));")
             proc=subprocess.run([node,str(helper),str(root)],input=json.dumps({'method':'chat.inject','params':{'message':'synthetic-secret'}}).encode(),capture_output=True,timeout=10,check=True)
             self.assertEqual(json.loads(proc.stdout),{'messageId':'receipt'});self.assertEqual(proc.stderr,b'')
             bad=subprocess.run([node,str(helper),str(root)],input=b'{"method":"agent","params":{}}',capture_output=True,timeout=10)
             self.assertNotEqual(bad.returncode,0)
+            escaped='\0'*12000
+            large=subprocess.run([node,str(helper),str(root)],input=json.dumps({'method':'chat.inject','params':{'message':escaped}}).encode(),capture_output=True,timeout=10,check=True)
+            self.assertEqual(json.loads(large.stdout),{'messageId':'receipt'});self.assertEqual(large.stderr,b'')
+            valid=json.dumps({'method':'chat.inject','params':{'message':'x'}}).encode()
+            exact=valid[:-1]+b' '*(96*1024-len(valid))+b'}'
+            boundary=subprocess.run([node,str(helper),str(root)],input=exact,capture_output=True,timeout=10,check=True)
+            self.assertEqual(json.loads(boundary.stdout),{'messageId':'receipt'});self.assertEqual(boundary.stderr,b'')
+            oversized=valid[:-1]+b' '*(96*1024+1-len(valid))+b'}'
+            rejected=subprocess.run([node,str(helper),str(root)],input=oversized,capture_output=True,timeout=10)
+            self.assertNotEqual(rejected.returncode,0)
 
 if __name__=='__main__':unittest.main()

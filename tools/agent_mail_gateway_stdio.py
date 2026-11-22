@@ -11,6 +11,9 @@ class GatewayPinnedStateChanged(RuntimeError):
     """A fixed safe diagnosis for operator-pinned input drift."""
 
 
+MAX_GATEWAY_INPUT_BYTES = 96 * 1024
+
+
 def _pinned_preflight(config, deadline):
     try:
         host._preflight(config, deadline)
@@ -29,7 +32,7 @@ def call(config, helper_path, helper_sha256, method, params):
     if host._hash_file(helper, deadline)[0] != helper_sha256:
         raise ValueError('gateway_helper_changed')
     raw = json.dumps({'method':method, 'params':params}, ensure_ascii=False, separators=(',', ':')).encode()
-    if len(raw) > 32768:
+    if len(raw) > MAX_GATEWAY_INPUT_BYTES:
         raise ValueError('gateway_input_too_large')
     try:
         # The existing owned-process-group exchange handles cooperative timeout,
