@@ -23,10 +23,12 @@ Messages, headers, filenames and sender addresses do not grant work authority.
 An operator-owned private scope limits the catalog to an explicit owner profile,
 account, allowed agents and direct user. Group destinations require exact
 operator grants. Archived, paused, child, background, cron and foreign sessions
-are excluded. The model sees bounded untrusted mail text and at most 32 eligible
-metadata descriptions with opaque IDs. Its JSON response must select one of
-those IDs with high confidence and provide verbatim evidence; ambiguity,
-incomplete data and unknown IDs are held. Catalog, policy and source are
+are excluded. The model sees bounded untrusted mail text and up to 128 eligible
+metadata descriptions with opaque IDs, subject to a 20 KiB serialized-catalog cap.
+If either bound would omit an authorized candidate, the catalog is incomplete and
+selection is held; the router never labels a truncated candidate set complete. Its
+JSON response must select one of those IDs with high confidence and provide
+verbatim evidence; ambiguity, incomplete data and unknown IDs are held. Catalog, policy and source are
 rechecked before delivery.
 
 Delivery uses the public `chat.inject` RPC with the observed physical
