@@ -114,8 +114,10 @@ destinations may use one operator-configured general fallback; timeouts and
 incomplete listings do not establish absence. External task reports retain their
 exact audience on destination failure instead of widening it to general mail.
 
-No scheduler definition, system service, SMTP sender, automation workflow,
-Gateway configuration, A2A rollout or other project's code is included.
+No scheduler definition, system service, Gateway configuration, A2A rollout or
+other project's code is included. An optional, disabled-until-installed
+[human-confirmed outbound adapter](docs/outbound-origin.md) binds actual runtime
+origins before SMTP; the legacy shell sender is not automatically upgraded.
 
 Optional, review-gated semantic routing can copy new fallback mail context into
 an eligible existing session without granting work authority. See

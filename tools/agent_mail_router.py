@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agent_mail_content import SENDERS, PRIMARY_SENDERS, CONTENT_ROOT, read_manifest, source_for
 from agent_mail_lifecycle import Ledger, record_error, fixed_code, COMPONENTS
 import agent_mail_external as external
+import agent_mail_origin as outbound_origin
 
 import agent_mail_readonly as readonly_checks
 import agent_mail_work as authorized_work
@@ -393,6 +394,7 @@ class Store:
                 unavailable_json TEXT NOT NULL);
         """)
         self.routes = routes
+        outbound_origin.initialize(self.db)
         with self.db:
             for r in routes.values():
                 for mid in r.get("message_ids", []) + [t["message_id"] for t in r.get("outbound_threads", [])]:
@@ -448,6 +450,9 @@ class Store:
             if remainder.strip() or len(ids(value)) >= 100:
                 return None, "thread_headers_invalid"
         mids = ids(message.get("message_id")) + ids(message.get("in_reply_to")) + ids(message.get("references"))
+        automatic = outbound_origin.correlate(self.db, message, self.routes)
+        if automatic is not None:
+            return None, automatic[0]
         known = set()
         for mid in mids:
             known.update(row[0] for row in self.db.execute("SELECT route FROM anchors WHERE id=?", (mid,)))
@@ -519,6 +524,8 @@ class Store:
                     rid, reason = None, "duplicate_message_id" if same else "message_id_collision"
                 self.db.execute("INSERT OR IGNORE INTO mail VALUES (?,?,?,?,?,NULL)",
                                 (msg["key"], msg.get("message_id", ""), canonical(msg), rid, reason))
+                if reason == outbound_origin.REASON:
+                    outbound_origin.admit(self, msg)
                 if rid and not self.routes[rid].get("fallback") and msg.get("sender") in SENDERS and self.routes[rid].get("intake_policy") != external.MODE:
                     self.db.execute("INSERT OR IGNORE INTO anchors VALUES (?,?)", (msg["message_id"], rid))
             semantic_result = None
@@ -789,6 +796,10 @@ class Store:
         row = self.db.execute("SELECT e.* FROM effects e JOIN summaries s ON s.id=e.summary_id WHERE e.status='pending' AND (e.kind='context' OR ?=1) ORDER BY s.rowid,CASE e.kind WHEN 'context' THEN 0 ELSE 1 END,e.rowid LIMIT 1",
                               (int(day(clock())),)).fetchone()
         if not row:
+            if deadline is None or deadline - time.monotonic() >= 2:
+                origin_result = outbound_origin.dispatch(self, gateway)
+                if origin_result is not None:
+                    return origin_result
             uncertain = self.db.execute("SELECT * FROM effects WHERE status='unknown' AND kind='context' ORDER BY rowid LIMIT 1").fetchone()
             if uncertain:
                 receipt = gateway.find(uncertain["target"], "MAIL-" + uncertain["id"])

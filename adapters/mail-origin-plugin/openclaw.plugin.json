@@ -1,0 +1,30 @@
+{
+  "id": "agent-mail-origin",
+  "name": "Mail origin",
+  "description": "Human-confirmed outbound mail with durable runtime origin.",
+  "contracts": {
+    "tools": [
+      "mail_prepare"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "dbPath",
+      "credentialsPath",
+      "pythonPath"
+    ],
+    "properties": {
+      "dbPath": {
+        "type": "string"
+      },
+      "credentialsPath": {
+        "type": "string"
+      },
+      "pythonPath": {
+        "type": "string"
+      }
+    }
+  }
+}
